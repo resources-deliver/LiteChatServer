@@ -5,9 +5,12 @@
 #include <atomic>
 #include <unordered_map>
 #include <mutex>
+#include <thread>
 #include "client_session.h"
 #include "thread_pool.h"
 #include "db_manager.h"
+#include "session_manager.h"
+#include "user_manager.h"
 
 /**
  * @brief 服务器类，负责管理客户端连接和消息收发
@@ -31,6 +34,11 @@ public:
     int GetCurrentConnections();
 
 private:
+    void StartHeartbeatCheck();
+    void HeartbeatCheckThread();
+    void DispatchRequest(int clientSocket, const std::string& data);
+
+private:
     int serverSocket;
     std::string serverIP;
     int serverPort;
@@ -38,6 +46,9 @@ private:
     std::atomic<int> currentConnections;
     ThreadPool* threadPool;
     DBManager* dbManager;
+    SessionManager* sessionManager;
+    UserManager* userManager;
+    std::thread* heartbeatThread;
     std::unordered_map<int, ClientSession*> sessionMap;
     std::mutex sessionMutex;
     bool running;
