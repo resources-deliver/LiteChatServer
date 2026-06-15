@@ -33,6 +33,7 @@ int main(){
     std::cout << "数据库连接池初始化成功" << std::endl;
 
     Server server;
+    server.SetDBManager(&dbManager);
     g_server = &server;
 
     if(!server.Start()){

@@ -19,6 +19,7 @@ class Server{
 public:
     Server();
     ~Server();
+    void SetDBManager(DBManager* dbMgr);
     bool Start();
     void Stop();
     void AcceptConnections();

@@ -36,9 +36,6 @@ Server::~Server(){
     if(threadPool){
         delete threadPool;
     }
-    if(dbManager){
-        delete dbManager;
-    }
     if(sessionManager){
         delete sessionManager;
     }
@@ -51,10 +48,23 @@ Server::~Server(){
 }
 
 /**
+ * @brief 设置数据库管理器
+ * @param dbMgr 数据库管理器指针
+ */
+void Server::SetDBManager(DBManager* dbMgr){
+    dbManager = dbMgr;
+}
+
+/**
  * @brief 启动服务器，创建socket、绑定、监听
  * @return 启动成功返回true，失败返回false
  */
 bool Server::Start(){
+    if(!dbManager){
+        std::cerr << "数据库管理器未初始化" << std::endl;
+        return false;
+    }
+
     threadPool = new ThreadPool(10);
     sessionManager = new SessionManager();
     userManager = new UserManager(dbManager, sessionManager);
@@ -154,7 +164,7 @@ void Server::AcceptConnections(){
         std::cout << "客户端连接成功：" << clientIP << ":" << clientPort << std::endl;
 
         ClientSession* session = new ClientSession(clientSocket, clientIP, clientPort);
-        AddSession(clientSocket, session);
+        sessionManager->AddSession(clientSocket, session);
         currentConnections++;
 
         threadPool->SubmitTask([this, clientSocket](){
@@ -265,8 +275,13 @@ std::string Server::PackageMessage(const std::string& body){
  * @param session 会话对象指针
  */
 void Server::AddSession(int clientSocket, ClientSession* session){
-    std::lock_guard<std::mutex> lock(sessionMutex);
-    sessionMap[clientSocket] = session;
+    if(sessionManager){
+        sessionManager->AddSession(clientSocket, session);
+    }
+    else{
+        std::lock_guard<std::mutex> lock(sessionMutex);
+        sessionMap[clientSocket] = session;
+    }
 }
 
 /**
@@ -274,11 +289,16 @@ void Server::AddSession(int clientSocket, ClientSession* session){
  * @param clientSocket 客户端socket文件描述符
  */
 void Server::RemoveSession(int clientSocket){
-    std::lock_guard<std::mutex> lock(sessionMutex);
-    auto it = sessionMap.find(clientSocket);
-    if(it != sessionMap.end()){
-        delete it->second;
-        sessionMap.erase(it);
+    if(sessionManager){
+        sessionManager->RemoveSession(clientSocket);
+    }
+    else{
+        std::lock_guard<std::mutex> lock(sessionMutex);
+        auto it = sessionMap.find(clientSocket);
+        if(it != sessionMap.end()){
+            delete it->second;
+            sessionMap.erase(it);
+        }
     }
 }
 
@@ -288,6 +308,9 @@ void Server::RemoveSession(int clientSocket){
  * @return 返回会话对象指针，未找到返回nullptr
  */
 ClientSession* Server::GetSession(int clientSocket){
+    if(sessionManager){
+        return sessionManager->GetSession(clientSocket);
+    }
     std::lock_guard<std::mutex> lock(sessionMutex);
     auto it = sessionMap.find(clientSocket);
     if(it != sessionMap.end()){
@@ -302,6 +325,9 @@ ClientSession* Server::GetSession(int clientSocket){
  * @return 返回会话对象指针，未找到返回nullptr
  */
 ClientSession* Server::GetSessionByUsername(const std::string& username){
+    if(sessionManager){
+        return sessionManager->GetSessionByUsername(username);
+    }
     std::lock_guard<std::mutex> lock(sessionMutex);
     for(auto& pair : sessionMap){
         if(pair.second->GetUsername() == username){
@@ -373,29 +399,54 @@ void Server::DispatchRequest(int clientSocket, const std::string& data){
     
     std::string type = root["type"].asString();
     
+    Json::Value dataNode = root["data"];
+    
     Request request;
     request.type = type;
     request.clientSocket = clientSocket;
     
-    if(root.isMember("username")){
-        request.username = root["username"].asString();
+    if(dataNode.isNull()){
+        if(root.isMember("username")){
+            request.username = root["username"].asString();
+        }
+        if(root.isMember("password")){
+            request.password = root["password"].asString();
+        }
+        if(root.isMember("newUsername")){
+            request.newUsername = root["newUsername"].asString();
+        }
+        if(root.isMember("newPassword")){
+            request.newPassword = root["newPassword"].asString();
+        }
+        if(root.isMember("verifyPassword")){
+            request.verifyPassword = root["verifyPassword"].asString();
+        }
     }
-    if(root.isMember("password")){
-        request.password = root["password"].asString();
-    }
-    if(root.isMember("newUsername")){
-        request.newUsername = root["newUsername"].asString();
-    }
-    if(root.isMember("newPassword")){
-        request.newPassword = root["newPassword"].asString();
-    }
-    if(root.isMember("verifyPassword")){
-        request.verifyPassword = root["verifyPassword"].asString();
+    else{
+        if(dataNode.isMember("username")){
+            request.username = dataNode["username"].asString();
+        }
+        if(dataNode.isMember("password")){
+            request.password = dataNode["password"].asString();
+        }
+        if(dataNode.isMember("newUsername")){
+            request.newUsername = dataNode["newUsername"].asString();
+        }
+        if(dataNode.isMember("newPassword")){
+            request.newPassword = dataNode["newPassword"].asString();
+        }
+        if(dataNode.isMember("verifyPassword")){
+            request.verifyPassword = dataNode["verifyPassword"].asString();
+        }
     }
     
     Response response;
     
-    if(type == "REGISTER"){
+    if(!userManager){
+        response.code = 5001;
+        response.msg = "服务器内部错误";
+    }
+    else if(type == "REGISTER"){
         response = userManager->HandleRegister(request);
     }
     else if(type == "LOGIN"){

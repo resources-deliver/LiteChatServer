@@ -34,6 +34,12 @@ UserManager::~UserManager(){
 Response UserManager::HandleRegister(const Request& request){
     Response response;
 
+    if(!userDAO){
+        response.code = 5001;
+        response.msg = "服务器内部错误";
+        return response;
+    }
+
     if(!ValidateUsername(request.username)){
         response.code = 2001;
         response.msg = "用户名格式不合法";
