@@ -6,6 +6,9 @@
 #include <unistd.h>
 #include <cstring>
 #include <sstream>
+#include <thread>
+#include <chrono>
+#include <jsoncpp/json/json.h>
 
 /**
  * @brief Server构造函数，初始化服务器参数
@@ -18,6 +21,9 @@ Server::Server()
     , currentConnections(0)
     , threadPool(nullptr)
     , dbManager(nullptr)
+    , sessionManager(nullptr)
+    , userManager(nullptr)
+    , heartbeatThread(nullptr)
     , running(false)
 {
 }
@@ -33,6 +39,15 @@ Server::~Server(){
     if(dbManager){
         delete dbManager;
     }
+    if(sessionManager){
+        delete sessionManager;
+    }
+    if(userManager){
+        delete userManager;
+    }
+    if(heartbeatThread){
+        delete heartbeatThread;
+    }
 }
 
 /**
@@ -41,6 +56,8 @@ Server::~Server(){
  */
 bool Server::Start(){
     threadPool = new ThreadPool(10);
+    sessionManager = new SessionManager();
+    userManager = new UserManager(dbManager, sessionManager);
 
     serverSocket = socket(AF_INET, SOCK_STREAM, 0);
     if(serverSocket == -1){
@@ -78,6 +95,9 @@ bool Server::Start(){
 
     std::cout << "服务器启动成功，监听端口" << serverPort << std::endl;
     running = true;
+    
+    StartHeartbeatCheck();
+    
     return true;
 }
 
@@ -86,6 +106,10 @@ bool Server::Start(){
  */
 void Server::Stop(){
     running = false;
+    
+    if(heartbeatThread && heartbeatThread->joinable()){
+        heartbeatThread->join();
+    }
     
     std::lock_guard<std::mutex> lock(sessionMutex);
     for(auto& pair : sessionMap){
@@ -150,11 +174,15 @@ void Server::HandleClient(int clientSocket){
             break;
         }
 
-        // TODO: 解析JSON并分发到对应业务模块
-        std::cout << "收到客户端数据：" << data << std::endl;
+        DispatchRequest(clientSocket, data);
     }
 
-    RemoveSession(clientSocket);
+    ClientSession* session = sessionManager->GetSession(clientSocket);
+    if(session && !session->GetUsername().empty()){
+        userManager->NotifyFriendsStatusChange(session->GetUsername(), UserStatus::Offline);
+    }
+
+    sessionManager->RemoveSession(clientSocket);
     currentConnections--;
     close(clientSocket);
     std::cout << "客户端断开连接" << std::endl;
@@ -289,4 +317,119 @@ ClientSession* Server::GetSessionByUsername(const std::string& username){
  */
 int Server::GetCurrentConnections(){
     return currentConnections.load();
+}
+
+/**
+ * @brief 启动心跳检测线程
+ */
+void Server::StartHeartbeatCheck(){
+    heartbeatThread = new std::thread(&Server::HeartbeatCheckThread, this);
+}
+
+/**
+ * @brief 心跳检测线程函数，每60秒检测一次，超过180秒无心跳则断开
+ */
+void Server::HeartbeatCheckThread(){
+    while(running){
+        std::this_thread::sleep_for(std::chrono::seconds(60));
+        
+        auto sessions = sessionManager->GetAllSessions();
+        time_t currentTime = time(nullptr);
+        
+        for(auto& pair : sessions){
+            int socket = pair.first;
+            ClientSession* session = pair.second;
+            
+            if(session->GetIsConnected() && !session->GetUsername().empty()){
+                time_t lastHeartbeat = session->GetLastHeartbeat();
+                if(difftime(currentTime, lastHeartbeat) > 180){
+                    std::cout << "心跳超时，断开客户端：" << session->GetUsername() << std::endl;
+                    
+                    userManager->NotifyFriendsStatusChange(session->GetUsername(), UserStatus::Offline);
+                    
+                    shutdown(socket, SHUT_RDWR);
+                    sessionManager->RemoveSession(socket);
+                    currentConnections--;
+                }
+            }
+        }
+    }
+}
+
+/**
+ * @brief 分发客户端请求到对应业务模块
+ * @param clientSocket 客户端socket
+ * @param data JSON数据字符串
+ */
+void Server::DispatchRequest(int clientSocket, const std::string& data){
+    Json::Reader reader;
+    Json::Value root;
+    
+    if(!reader.parse(data, root)){
+        std::string response = PackageMessage("{\"type\":\"ERROR\",\"code\":4001,\"msg\":\"JSON解析失败\"}");
+        SendData(clientSocket, response);
+        return;
+    }
+    
+    std::string type = root["type"].asString();
+    
+    Request request;
+    request.type = type;
+    request.clientSocket = clientSocket;
+    
+    if(root.isMember("username")){
+        request.username = root["username"].asString();
+    }
+    if(root.isMember("password")){
+        request.password = root["password"].asString();
+    }
+    if(root.isMember("newUsername")){
+        request.newUsername = root["newUsername"].asString();
+    }
+    if(root.isMember("newPassword")){
+        request.newPassword = root["newPassword"].asString();
+    }
+    if(root.isMember("verifyPassword")){
+        request.verifyPassword = root["verifyPassword"].asString();
+    }
+    
+    Response response;
+    
+    if(type == "REGISTER"){
+        response = userManager->HandleRegister(request);
+    }
+    else if(type == "LOGIN"){
+        response = userManager->HandleLogin(request);
+    }
+    else if(type == "UPDATE_USER"){
+        response = userManager->HandleUpdateUser(request);
+    }
+    else if(type == "QUERY_STATUS"){
+        response = userManager->HandleQueryStatus(request);
+    }
+    else if(type == "HEARTBEAT"){
+        ClientSession* session = sessionManager->GetSession(clientSocket);
+        if(session){
+            session->UpdateHeartbeat();
+        }
+        response.code = 0;
+        response.msg = "心跳正常";
+    }
+    else{
+        response.code = 4002;
+        response.msg = "未知的请求类型";
+    }
+    
+    Json::Value jsonResponse;
+    jsonResponse["type"] = type + "_RESPONSE";
+    jsonResponse["code"] = response.code;
+    jsonResponse["msg"] = response.msg;
+    if(!response.data.empty()){
+        jsonResponse["data"] = response.data;
+    }
+    
+    Json::FastWriter writer;
+    std::string responseStr = writer.write(jsonResponse);
+    
+    SendData(clientSocket, responseStr);
 }
