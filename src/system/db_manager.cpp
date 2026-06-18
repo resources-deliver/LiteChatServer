@@ -21,10 +21,15 @@ DBManager::DBManager()
  */
 DBManager::~DBManager(){
     std::lock_guard<std::mutex> lock(poolMutex);  // 加锁使得共享资源同一时间只有一个线程访问
+    int shutDownCount = 0;  // 记录关闭连接的次数
     while(!connectionPool.empty()){  // 若MYSQL连接池不为空
         MYSQL* conn = connectionPool.front();  // 获取连接池队头连接
         connectionPool.pop();  // 从连接池队列中移除队头连接
         DestroyConnection(conn);  // 关闭连接资源
+        shutDownCount++;
+        if(shutDownCount == poolSize){
+            std::cout << "[DBManager::~DBManager]数据库连接已关闭" << shutDownCount << "个连接" << std::endl;
+        }
     }
 }
 
@@ -35,13 +40,18 @@ DBManager::~DBManager(){
  */
 bool DBManager::InitConnectionPool(int size){
     poolSize = size;  // 初始化连接池大小
+    int createCount = 0;  // 记录创建连接的次数
     for(int i = 0; i < size; ++i){  // 创建指定数量的MYSQL连接
         MYSQL* conn = CreateConnection();  // 创建MYSQL连接
         if(!conn){  // 如果创建连接失败
             std::cerr << "[DBManager::InitConnectionPool]创建MYSQL连接" << i + 1 << "失败" << std::endl;
             return false;
         }
+        createCount++;
         connectionPool.push(conn);  // 将连接添加到连接池队列中
+    }
+    if(createCount == poolSize){
+        std::cout << "[DBManager::InitConnectionPool]数据库连接已创建" << createCount << "个连接" << std::endl;
     }
     return ValidateConnection();  // 验证连接池中的连接是否可用
 }
@@ -171,7 +181,6 @@ MYSQL* DBManager::CreateConnection(){
         return nullptr;
     }
     mysql_set_character_set(conn, "utf8mb4");  // 设置字符集为utf8mb4
-    std::cout << "[DBManager::CreateConnection]数据库连接成功" << std::endl;
     return conn;
 }
 
@@ -182,6 +191,5 @@ MYSQL* DBManager::CreateConnection(){
 void DBManager::DestroyConnection(MYSQL* conn){
     if(conn){  // 如果连接指针不为空
         mysql_close(conn);  // 关闭连接
-        std::cout << "[DBManager::DestroyConnection]数据库连接已关闭" << std::endl;
     }
 }

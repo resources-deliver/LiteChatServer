@@ -61,7 +61,6 @@ void ThreadPool::WorkerThread(){
             std::unique_lock<std::mutex> lock(queueMutex);
             condition.wait(lock, [this](){ return stop.load() || !taskQueue.empty(); });  // 使用条件变量等待连接池有可用连接
             if(stop.load() && taskQueue.empty()){  // 如果线程池已停止且任务队列为空
-                std::cout << "[ThreadPool::WorkerThread]线程池已停止，任务队列为空" << std::endl;
                 return;
             }
             task = std::move(taskQueue.front());  // 从任务队列获取任务

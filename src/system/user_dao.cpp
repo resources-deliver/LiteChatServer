@@ -81,7 +81,7 @@ bool UserDAO::GetUserByUsername(const std::string& username, int& userId, std::s
     }
     userId = std::stoi(row[0]);
     passwordHash = row[1];
-    std::cout << "[UserDAO::GetUserByUsername]查询用户成功,用户ID: " << userId << ", 密码哈希值: " << passwordHash << std::endl;
+    std::cout << "[UserDAO::GetUserByUsername]查询用户成功,用户ID: " << userId << std::endl;
     // 释放资源
     mysql_free_result(result);
     dbManager->ReleaseConnection(conn);
@@ -262,7 +262,7 @@ bool UserDAO::GetUserOnlineStatus(int userId, bool& isOnline){
     // 执行查询语句
     MYSQL_RES* result = dbManager->ExecuteQuery(conn, sql.str());
     if(!result){
-        std::cerr << "[UserDAO::GetUserOnlineStatus]查询用户在线状态失败" << std::endl;
+        std::cerr << "[UserDAO::GetUserOnlineStatus]查询用户在线状态失败,用户ID: " << userId << std::endl;
         dbManager->ReleaseConnection(conn);
         return false;
     }
@@ -301,7 +301,7 @@ bool UserDAO::UpdateOnlineStatusByUsername(const std::string& username, bool isO
     // 执行更新语句
     bool result = dbManager->ExecuteUpdate(conn, sql.str());
     if(!result){
-        std::cerr << "[UserDAO::UpdateOnlineStatusByUsername]更新用户在线状态失败" << std::endl;
+        std::cerr << "[UserDAO::UpdateOnlineStatusByUsername]更新用户在线状态失败,用户名: " << username << std::endl;
         dbManager->ReleaseConnection(conn);
         return false;
     }
@@ -330,7 +330,7 @@ bool UserDAO::GetUserIdByUsername(const std::string& username, int& userId){
     // 执行查询语句
     MYSQL_RES* result = dbManager->ExecuteQuery(conn, sql.str());
     if(!result){
-        std::cerr << "[UserDAO::GetUserIdByUsername]查询用户ID失败" << std::endl;
+        std::cerr << "[UserDAO::GetUserIdByUsername]查询用户ID失败,用户名: " << username << std::endl;
         dbManager->ReleaseConnection(conn);
         return false;
     }
@@ -372,7 +372,7 @@ bool UserDAO::GetFriendsOfUser(int userId, std::vector<std::pair<std::string, bo
     MYSQL_RES* result = dbManager->ExecuteQuery(conn, sql.str());
     if(!result){
         dbManager->ReleaseConnection(conn);
-        std::cerr << "[UserDAO::GetFriendsOfUser]查询用户好友失败" << std::endl;
+        std::cerr << "[UserDAO::GetFriendsOfUser]查询用户好友失败,用户ID: " << userId << std::endl;
         return false;
     }
     // 获取与处理查询结果
