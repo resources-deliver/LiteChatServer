@@ -23,12 +23,12 @@ public:
     void SetIsConnected(bool connected);
 
 private:
-    int socket;
-    std::string ip;
-    int port;
-    std::string username;
-    time_t lastHeartbeat;
-    bool isConnected;
+    int socket;  // 客户端套接字描述符
+    std::string ip;  // 客户端IP地址
+    int port;  // 客户端端口号
+    std::string username;  // 客户端用户名
+    time_t lastHeartbeat;  // 客户端最后连接时间
+    bool isConnected;  // 客户端连接状态
 };
 
 #endif // CLIENT_SESSION_H

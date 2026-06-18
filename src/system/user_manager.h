@@ -2,6 +2,7 @@
 #define USER_MANAGER_H
 
 #include <string>
+#include <functional>
 #include "db_manager.h"
 #include "session_manager.h"
 #include "user_dao.h"
@@ -42,11 +43,14 @@ public:
     bool ValidateUsername(const std::string& username);
     bool ValidatePassword(const std::string& password);
     void NotifyFriendsStatusChange(const std::string& username, UserStatus status);
+    bool UpdateUserOnlineStatus(const std::string& username, bool isOnline);
+    void SetSendCallback(std::function<bool(int, const std::string&)> callback);
 
 private:
     DBManager* dbManager;
     SessionManager* sessionManager;
     UserDAO* userDAO;
+    std::function<bool(int, const std::string&)> sendCallback;
     std::string MD5Encrypt(const std::string& password);
 };
 

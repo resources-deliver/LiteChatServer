@@ -5,6 +5,8 @@
 #include <sstream>
 #include <iomanip>
 #include <sys/socket.h>
+#include <jsoncpp/json/json.h>
+#include <unistd.h>
 
 /**
  * @brief UserManager构造函数，初始化数据库管理器和会话管理器
@@ -67,6 +69,7 @@ Response UserManager::HandleRegister(const Request& request){
 
     response.code = 0;
     response.msg = "注册成功";
+    std::cout << "用户注册成功：" << request.username << std::endl;
     return response;
 }
 
@@ -102,11 +105,25 @@ Response UserManager::HandleLogin(const Request& request){
     bool isOnline = false;
     userDAO->GetUserOnlineStatus(userId, isOnline);
     if(isOnline){
+        userDAO->UpdateOnlineStatus(userId, false);
+
         ClientSession* oldSession = sessionManager->GetSessionByUsername(request.username);
         if(oldSession){
-            std::string notify = "{\"type\":\"STATUS_NOTIFY\",\"code\":2005,\"msg\":\"账号已在其他地方登录\"}";
-            send(oldSession->GetSocket(), notify.c_str(), notify.length(), 0);
-            shutdown(oldSession->GetSocket(), SHUT_RDWR);
+            Json::Value kickJson;
+            kickJson["type"] = "KICKED";
+            kickJson["code"] = 2005;
+            kickJson["msg"] = "账号已在其他地方登录";
+
+            Json::FastWriter writer;
+            std::string kickStr = writer.write(kickJson);
+
+            int oldSocket = oldSession->GetSocket();
+            if(sendCallback){
+                sendCallback(oldSocket, kickStr);
+            }
+
+            oldSession->SetUsername("");
+            shutdown(oldSocket, SHUT_RDWR);
         }
     }
 
@@ -116,11 +133,15 @@ Response UserManager::HandleLogin(const Request& request){
     ClientSession* session = sessionManager->GetSession(request.clientSocket);
     if(session){
         session->SetUsername(request.username);
+        sessionManager->BindUsername(request.clientSocket, request.username);
         session->UpdateHeartbeat();
     }
 
     response.code = 0;
     response.msg = "登录成功";
+    std::cout << "用户登录成功：" << request.username << std::endl;
+
+    NotifyFriendsStatusChange(request.username, UserStatus::Online);
     return response;
 }
 
@@ -194,6 +215,7 @@ Response UserManager::HandleUpdateUser(const Request& request){
 
     response.code = 0;
     response.msg = "修改成功";
+    std::cout << "用户信息修改成功：" << request.username << std::endl;
     return response;
 }
 
@@ -251,7 +273,57 @@ bool UserManager::ValidatePassword(const std::string& password){
  * @param status 用户状态
  */
 void UserManager::NotifyFriendsStatusChange(const std::string& username, UserStatus status){
-    std::cout << "通知好友状态变更：" << username << " 状态：" << (status == UserStatus::Online ? "在线" : "离线") << std::endl;
+    int userId = 0;
+    if(!userDAO->GetUserIdByUsername(username, userId)){
+        return;
+    }
+
+    std::vector<std::pair<std::string, bool>> friends;
+    if(!userDAO->GetFriendsOfUser(userId, friends)){
+        return;
+    }
+
+    std::string statusStr = (status == UserStatus::Online) ? "online" : "offline";
+
+    Json::Value notifyJson;
+    notifyJson["type"] = "STATUS_NOTIFY";
+    notifyJson["data"]["username"] = username;
+    notifyJson["data"]["status"] = statusStr;
+
+    Json::FastWriter writer;
+    std::string notifyStr = writer.write(notifyJson);
+
+    for(auto& friendPair : friends){
+        std::string friendUsername = friendPair.first;
+        bool isOnline = friendPair.second;
+
+        if(isOnline){
+            ClientSession* friendSession = sessionManager->GetSessionByUsername(friendUsername);
+            if(friendSession && sendCallback){
+                sendCallback(friendSession->GetSocket(), notifyStr);
+            }
+        }
+    }
+
+    std::cout << "通知好友状态变更：" << username << " 状态：" << statusStr << std::endl;
+}
+
+/**
+ * @brief 更新用户在线状态
+ * @param username 用户名
+ * @param isOnline 在线状态（true=在线，false=离线）
+ * @return 更新成功返回true，失败返回false
+ */
+bool UserManager::UpdateUserOnlineStatus(const std::string& username, bool isOnline){
+    return userDAO->UpdateOnlineStatusByUsername(username, isOnline);
+}
+
+/**
+ * @brief 设置发送数据的回调函数
+ * @param callback 发送回调函数
+ */
+void UserManager::SetSendCallback(std::function<bool(int, const std::string&)> callback){
+    sendCallback = callback;
 }
 
 /**

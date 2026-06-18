@@ -27,15 +27,15 @@ private:
     void DestroyConnection(MYSQL* conn);
 
 private:
-    std::queue<MYSQL*> connectionPool;
-    int poolSize;
-    std::mutex poolMutex;
-    std::condition_variable poolCondition;
-    std::string dbHost;
-    int dbPort;
-    std::string dbName;
-    std::string dbUser;
-    std::string dbPassword;
+    std::queue<MYSQL*> connectionPool;  // MYSQL连接池队列
+    int poolSize;  // 连接池大小
+    std::mutex poolMutex;  // 连接池互斥锁
+    std::condition_variable poolCondition;  // 连接池条件变量
+    std::string dbHost;  // 数据库主机地址
+    int dbPort;  // 数据库端口号
+    std::string dbName;  // 数据库名称
+    std::string dbUser;  // 数据库用户名
+    std::string dbPassword;  // 数据库密码
 };
 
 #endif // DB_MANAGER_H

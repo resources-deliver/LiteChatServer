@@ -69,6 +69,10 @@ bool Server::Start(){
     sessionManager = new SessionManager();
     userManager = new UserManager(dbManager, sessionManager);
 
+    userManager->SetSendCallback([this](int clientSocket, const std::string& data) -> bool {
+        return this->SendData(clientSocket, data);
+    });
+
     serverSocket = socket(AF_INET, SOCK_STREAM, 0);
     if(serverSocket == -1){
         std::cerr << "创建socket失败" << std::endl;
@@ -116,18 +120,24 @@ bool Server::Start(){
  */
 void Server::Stop(){
     running = false;
-    
+
     if(heartbeatThread && heartbeatThread->joinable()){
         heartbeatThread->join();
     }
-    
-    std::lock_guard<std::mutex> lock(sessionMutex);
-    for(auto& pair : sessionMap){
-        if(pair.second->GetSocket() != -1){
-            shutdown(pair.second->GetSocket(), SHUT_RDWR);
+
+    if(sessionManager){
+        auto sessions = sessionManager->GetAllSessions();
+        for(auto& pair : sessions){
+            ClientSession* session = pair.second;
+            if(session && !session->GetUsername().empty() && userManager){
+                userManager->UpdateUserOnlineStatus(session->GetUsername(), false);
+            }
+            if(session->GetSocket() != -1){
+                shutdown(session->GetSocket(), SHUT_RDWR);
+            }
         }
     }
-    
+
     if(serverSocket != -1){
         shutdown(serverSocket, SHUT_RDWR);
         close(serverSocket);
@@ -188,12 +198,16 @@ void Server::HandleClient(int clientSocket){
     }
 
     ClientSession* session = sessionManager->GetSession(clientSocket);
-    if(session && !session->GetUsername().empty()){
-        userManager->NotifyFriendsStatusChange(session->GetUsername(), UserStatus::Offline);
+    if(session){
+        if(!session->GetUsername().empty()){
+            userManager->UpdateUserOnlineStatus(session->GetUsername(), false);
+            userManager->NotifyFriendsStatusChange(session->GetUsername(), UserStatus::Offline);
+        }
+
+        sessionManager->RemoveSession(clientSocket);
+        currentConnections--;
     }
 
-    sessionManager->RemoveSession(clientSocket);
-    currentConnections--;
     close(clientSocket);
     std::cout << "客户端断开连接" << std::endl;
 }
@@ -370,7 +384,8 @@ void Server::HeartbeatCheckThread(){
                 time_t lastHeartbeat = session->GetLastHeartbeat();
                 if(difftime(currentTime, lastHeartbeat) > 180){
                     std::cout << "心跳超时，断开客户端：" << session->GetUsername() << std::endl;
-                    
+
+                    userManager->UpdateUserOnlineStatus(session->GetUsername(), false);
                     userManager->NotifyFriendsStatusChange(session->GetUsername(), UserStatus::Offline);
                     
                     shutdown(socket, SHUT_RDWR);
