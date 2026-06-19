@@ -4,19 +4,20 @@
 /**
  * @brief SessionManager构造函数
  */
-SessionManager::SessionManager(){
+SessionManager::SessionManager()
+{
 }
 
 /**
  * @brief SessionManager析构函数，清理所有会话
  */
 SessionManager::~SessionManager(){
-    std::lock_guard<std::mutex> lock(sessionMutex);
-    for(auto& pair : sessionMap){
-        delete pair.second;
+    std::lock_guard<std::mutex> lock(sessionMutex);  // 加锁使得共享资源同一时间只有一个线程访问
+    for(auto& pair : sessionMap){  // 遍历会话映射表
+        delete pair.second;  // 删除会话对象
     }
-    sessionMap.clear();
-    usernameToSocket.clear();
+    sessionMap.clear();  // 清空会话映射表
+    usernameToSocket.clear();  // 清空用户名到客户端socket的映射表
 }
 
 /**
@@ -26,9 +27,9 @@ SessionManager::~SessionManager(){
  */
 void SessionManager::AddSession(int socket, ClientSession* session){
     std::lock_guard<std::mutex> lock(sessionMutex);
-    sessionMap[socket] = session;
-    if(!session->GetUsername().empty()){
-        usernameToSocket[session->GetUsername()] = socket;
+    sessionMap[socket] = session;  // 将会话对象添加到会话映射表中
+    if(!session->GetUsername().empty()){  // 如果会话对象有用户名
+        usernameToSocket[session->GetUsername()] = socket;  // 将用户名添加到用户名到客户端socket的映射表中
     }
 }
 
@@ -38,14 +39,17 @@ void SessionManager::AddSession(int socket, ClientSession* session){
  */
 void SessionManager::RemoveSession(int socket){
     std::lock_guard<std::mutex> lock(sessionMutex);
-    auto it = sessionMap.find(socket);
-    if(it != sessionMap.end()){
-        std::string username = it->second->GetUsername();
-        if(!username.empty()){
-            usernameToSocket.erase(username);
+    auto it = sessionMap.find(socket);  // 查找会话映射表中是否存在该socket的会话
+    if(it != sessionMap.end()){  // 如果存在
+        std::string username = it->second->GetUsername();  // 获取会话对象的用户名
+        if(!username.empty()){  // 如果用户名不为空
+            auto nameIt = usernameToSocket.find(username);  // 查找用户名到客户端socket的映射表中是否存在该用户名
+            if(nameIt != usernameToSocket.end() && nameIt->second == socket){  // 如果存在且用户名对应的socket与当前socket相同
+                usernameToSocket.erase(nameIt);  // 从用户名到客户端socket的映射表中移除该用户名
+            }
         }
-        delete it->second;
-        sessionMap.erase(it);
+        delete it->second;  // 删除会话对象
+        sessionMap.erase(it);  // 从会话映射表中移除该socket的会话
     }
 }
 
@@ -56,9 +60,9 @@ void SessionManager::RemoveSession(int socket){
  */
 ClientSession* SessionManager::GetSession(int socket){
     std::lock_guard<std::mutex> lock(sessionMutex);
-    auto it = sessionMap.find(socket);
-    if(it != sessionMap.end()){
-        return it->second;
+    auto it = sessionMap.find(socket);  // 查找会话映射表中是否存在该socket的会话
+    if(it != sessionMap.end()){  // 如果存在
+        return it->second;  // 返回会话对象指针
     }
     return nullptr;
 }
@@ -70,11 +74,11 @@ ClientSession* SessionManager::GetSession(int socket){
  */
 ClientSession* SessionManager::GetSessionByUsername(const std::string& username){
     std::lock_guard<std::mutex> lock(sessionMutex);
-    auto it = usernameToSocket.find(username);
-    if(it != usernameToSocket.end()){
-        auto sessionIt = sessionMap.find(it->second);
-        if(sessionIt != sessionMap.end()){
-            return sessionIt->second;
+    auto it = usernameToSocket.find(username);  // 查找用户名到客户端socket的映射表中是否存在该用户名
+    if(it != usernameToSocket.end()){  // 如果存在
+        auto sessionIt = sessionMap.find(it->second);  // 查找会话映射表中是否存在该socket的会话
+        if(sessionIt != sessionMap.end()){  // 如果存在
+            return sessionIt->second;  // 返回会话对象指针
         }
     }
     return nullptr;
@@ -95,4 +99,14 @@ std::unordered_map<int, ClientSession*> SessionManager::GetAllSessions(){
  */
 std::mutex& SessionManager::GetMutex(){
     return sessionMutex;
+}
+
+/**
+ * @brief 绑定用户名到会话（登录成功后调用）
+ * @param socket 客户端socket
+ * @param username 用户名
+ */
+void SessionManager::BindUsername(int socket, const std::string& username){
+    std::lock_guard<std::mutex> lock(sessionMutex);
+    usernameToSocket[username] = socket;
 }

@@ -1,7 +1,7 @@
 #include "client_session.h"
 
 /**
- * @brief ClientSession默认构造函数
+ * @brief ClientSession默认构造函数，初始化类内私有属性
  */
 ClientSession::ClientSession() 
     : socket(-1)
@@ -14,7 +14,7 @@ ClientSession::ClientSession()
 }
 
 /**
- * @brief ClientSession带参数构造函数
+ * @brief ClientSession带参数构造函数，初始化类内私有属性
  * @param socket 客户端socket文件描述符
  * @param ip 客户端IP地址
  * @param port 客户端端口
@@ -37,8 +37,8 @@ ClientSession::~ClientSession()
 }
 
 /**
- * @brief 获取socket文件描述符
- * @return 返回socket文件描述符
+ * @brief 获取客户端套接字描述符
+ * @return 返回客户端socket文件描述符
  */
 int ClientSession::GetSocket() const{
     return socket;
@@ -69,16 +69,16 @@ std::string ClientSession::GetUsername() const{
 }
 
 /**
- * @brief 获取最后心跳时间
- * @return 返回最后心跳时间戳
+ * @brief 获取最后连接时间
+ * @return 返回最后连接时间戳
  */
 time_t ClientSession::GetLastHeartbeat() const{
     return lastHeartbeat;
 }
 
 /**
- * @brief 获取连接状态
- * @return 返回连接状态，true表示已连接
+ * @brief 获取客户端连接状态
+ * @return 返回客户端连接状态，true表示已连接，false表示未连接
  */
 bool ClientSession::GetIsConnected() const{
     return isConnected;
@@ -93,7 +93,7 @@ void ClientSession::SetUsername(const std::string& username){
 }
 
 /**
- * @brief 更新心跳时间
+ * @brief 更新客户端连接时间
  */
 void ClientSession::UpdateHeartbeat(){
     lastHeartbeat = time(nullptr);

@@ -11,7 +11,7 @@ static Server* g_server = nullptr;
  * @param signal 信号编号
  */
 void SignalHandler(int signal){
-    std::cout << "接收到信号：" << signal << "，正在关闭服务器..." << std::endl;
+    std::cout << "[main]接收到关闭服务器信号,正在等待线程结束后关闭服务器..." << std::endl;
     if(g_server){
         g_server->Stop();
     }
@@ -24,25 +24,20 @@ void SignalHandler(int signal){
 int main(){
     signal(SIGINT, SignalHandler);
     signal(SIGTERM, SignalHandler);
-
     DBManager dbManager;
     if(!dbManager.InitConnectionPool(10)){
-        std::cerr << "数据库连接池初始化失败，服务器拒绝启动" << std::endl;
+        std::cerr << "[main]数据库连接池初始化失败，服务器拒绝启动" << std::endl;
         return 1;
     }
-    std::cout << "数据库连接池初始化成功" << std::endl;
-
     Server server;
+    server.SetDBManager(&dbManager);
     g_server = &server;
-
     if(!server.Start()){
-        std::cerr << "服务器启动失败" << std::endl;
+        std::cerr << "[main]服务器启动失败" << std::endl;
         return 1;
     }
-
     std::thread acceptThread(&Server::AcceptConnections, &server);
     acceptThread.join();
-
-    std::cout << "服务器已关闭" << std::endl;
+    std::cout << "[main]服务器已关闭" << std::endl;
     return 0;
 }
