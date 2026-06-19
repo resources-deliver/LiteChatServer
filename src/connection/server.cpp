@@ -23,6 +23,7 @@ Server::Server()
     , dbManager(nullptr)
     , sessionManager(nullptr)
     , userManager(nullptr)
+    , friendManager(nullptr)
     , heartbeatThread(nullptr)
     , running(false)
 {
@@ -41,6 +42,9 @@ Server::~Server(){
     }
     if(userManager){
         delete userManager;
+    }
+    if(friendManager){
+        delete friendManager;
     }
     if(heartbeatThread){
         delete heartbeatThread;
@@ -68,6 +72,7 @@ bool Server::Start(){
     threadPool = new ThreadPool(10);
     sessionManager = new SessionManager();
     userManager = new UserManager(dbManager, sessionManager);
+    friendManager = new FriendManager(dbManager);
     // 发送数据到回调函数
     userManager->SetSendCallback(
         [this](int clientSocket, const std::string& data){
@@ -129,6 +134,9 @@ void Server::Stop(){
             ClientSession* session = pair.second;
             if(session && !session->GetUsername().empty() && userManager){  // 如果会话存在且有用户名且有用户管理器
                 userManager->UpdateUserOnlineStatus(session->GetUsername(), false);  // 则更新用户在线状态
+                if(friendManager){
+                    friendManager->RemoveFriendCache(session->GetUsername());  // 移除好友列表缓存
+                }
             }
             if(session->GetSocket() != -1){  // 如果会话存在socket
                 shutdown(session->GetSocket(), SHUT_RDWR);  // 关闭socket
@@ -192,6 +200,9 @@ void Server::HandleClient(int clientSocket){
         if(!session->GetUsername().empty()){  // 如果有用户名
             userManager->UpdateUserOnlineStatus(session->GetUsername(), false);  // 更新用户在线状态
             userManager->NotifyFriendsStatusChange(session->GetUsername(), UserStatus::Offline);  // 通知好友状态改变
+            if(friendManager){
+                friendManager->RemoveFriendCache(session->GetUsername());  // 移除好友列表缓存
+            }
         }
         sessionManager->RemoveSession(clientSocket);  // 移除会话
         currentConnections--;  // 减少当前连接数
@@ -375,6 +386,9 @@ void Server::HeartbeatCheckThread(){
                     std::cout << "[Server::HeartbeatCheckThread]心跳超时，断开客户端：" << session->GetUsername() << std::endl;
                     userManager->UpdateUserOnlineStatus(session->GetUsername(), false);  // 更新用户在线状态为离线
                     userManager->NotifyFriendsStatusChange(session->GetUsername(), UserStatus::Offline);  // 通知好友状态改变
+                    if(friendManager){
+                        friendManager->RemoveFriendCache(session->GetUsername());  // 移除好友列表缓存
+                    }
                     shutdown(socket, SHUT_RDWR);  // 关闭会话套接字
                     sessionManager->RemoveSession(socket);  // 移除会话
                     currentConnections--;  // 减少连接数
@@ -418,6 +432,9 @@ void Server::DispatchRequest(int clientSocket, const std::string& data){
         if(root.isMember("verifyPassword")){
             request.verifyPassword = root["verifyPassword"].asString();
         }
+        if(root.isMember("targetUsername")){
+            request.targetUsername = root["targetUsername"].asString();
+        }
     }
     else{
         if(dataNode.isMember("username")){
@@ -435,6 +452,9 @@ void Server::DispatchRequest(int clientSocket, const std::string& data){
         if(dataNode.isMember("verifyPassword")){
             request.verifyPassword = dataNode["verifyPassword"].asString();
         }
+        if(dataNode.isMember("targetUsername")){
+            request.targetUsername = dataNode["targetUsername"].asString();
+        }
     }
     Response response;
     if(!userManager){
@@ -446,12 +466,60 @@ void Server::DispatchRequest(int clientSocket, const std::string& data){
     }
     else if(type == "LOGIN"){
         response = userManager->HandleLogin(request);
+        if(response.code == 0 && friendManager){
+            friendManager->CacheFriendList(request.username);
+        }
     }
     else if(type == "UPDATE_USER"){
         response = userManager->HandleUpdateUser(request);
     }
     else if(type == "QUERY_STATUS"){
         response = userManager->HandleQueryStatus(request);
+    }
+    else if(type == "ADD_FRIEND"){
+        if(friendManager){
+            response = friendManager->HandleAddFriend(request);
+        }
+        else{
+            response.code = 5001;
+            response.msg = "服务器内部错误";
+        }
+    }
+    else if(type == "DEL_FRIEND"){
+        if(friendManager){
+            response = friendManager->HandleDeleteFriend(request);
+        }
+        else{
+            response.code = 5001;
+            response.msg = "服务器内部错误";
+        }
+    }
+    else if(type == "FRIEND_LIST"){
+        if(friendManager){
+            response = friendManager->HandleFriendList(request);
+        }
+        else{
+            response.code = 5001;
+            response.msg = "服务器内部错误";
+        }
+    }
+    else if(type == "FRIEND_STATUS"){
+        if(friendManager){
+            response = friendManager->HandleFriendStatus(request);
+        }
+        else{
+            response.code = 5001;
+            response.msg = "服务器内部错误";
+        }
+    }
+    else if(type == "QUERY_FRIEND"){
+        if(friendManager){
+            response = friendManager->HandleQueryFriend(request);
+        }
+        else{
+            response.code = 5001;
+            response.msg = "服务器内部错误";
+        }
     }
     else if(type == "HEARTBEAT"){
         ClientSession* session = sessionManager->GetSession(clientSocket);
@@ -470,7 +538,14 @@ void Server::DispatchRequest(int clientSocket, const std::string& data){
     jsonResponse["code"] = response.code;
     jsonResponse["msg"] = response.msg;
     if(!response.data.empty()){
-        jsonResponse["data"] = response.data;
+        Json::Reader dataReader;
+        Json::Value dataValue;
+        if(dataReader.parse(response.data, dataValue)){
+            jsonResponse["data"] = dataValue;
+        }
+        else{
+            jsonResponse["data"] = response.data;
+        }
     }
     Json::FastWriter writer;
     std::string responseStr = writer.write(jsonResponse);
