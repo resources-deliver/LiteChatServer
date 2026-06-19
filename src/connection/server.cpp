@@ -60,49 +60,55 @@ void Server::SetDBManager(DBManager* dbMgr){
  * @return 启动成功返回true，失败返回false
  */
 bool Server::Start(){
-    if(!dbManager){
+    if(!dbManager){  // 如果数据库管理器未初始化
         std::cerr << "[Server::Start]数据库管理器未初始化" << std::endl;
         return false;
     }
+    // 初始化线程池、会话管理、用户管理
     threadPool = new ThreadPool(10);
     sessionManager = new SessionManager();
     userManager = new UserManager(dbManager, sessionManager);
-    userManager->SetSendCallback([this](int clientSocket, const std::string& data) -> bool{
-        return this->SendData(clientSocket, data);
-    });  // 发送数据到回调函数
+    // 发送数据到回调函数
+    userManager->SetSendCallback(
+        [this](int clientSocket, const std::string& data){
+            return this->SendData(clientSocket, data);
+        }
+    );
     // 创建socket
     serverSocket = socket(AF_INET, SOCK_STREAM, 0);
-    if(serverSocket == -1){
+    if(serverSocket == -1){  // 如果创建socket失败
         std::cerr << "[Server::Start]创建socket失败" << std::endl;
         return false;
     }
     // 设置端口复用
     int opt = 1;
     int resetport = setsockopt(serverSocket, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
-    if(resetport == -1){
+    if(resetport == -1){  // 如果设置端口复用失败
         std::cerr << "[Server::Start]设置端口复用失败" << std::endl;
-        close(serverSocket);  // 关闭socket
+        close(serverSocket);
         return false;
     }
-    // 绑定服务端IP和端口
+    // 设置服务端IP和端口（网络字节序）
     struct sockaddr_in serverAddr;
     memset(&serverAddr, 0, sizeof(serverAddr));
     serverAddr.sin_family = AF_INET;
     serverAddr.sin_addr.s_addr = inet_addr(serverIP.c_str());
     serverAddr.sin_port = htons(serverPort);
+    // 绑定服务端IP和端口
     int bindres = bind(serverSocket, (struct sockaddr*)&serverAddr, sizeof(serverAddr));
-    if(bindres == -1){
+    if(bindres == -1){  // 如果绑定IP和端口失败
         std::cerr << "[Server::Start]绑定IP和端口失败" << std::endl;
         close(serverSocket);
         return false;
     }
     // 监听连接
     int listenres = listen(serverSocket, maxConnections);
-    if(listenres == -1){
+    if(listenres == -1){  // 如果监听失败
         std::cerr << "[Server::Start]监听失败" << std::endl;
         close(serverSocket);
         return false;
     }
+    // 设置服务器为运行状态、启动心跳检查线程
     std::cout << "[Server::Start]服务器启动成功，监听端口" << serverPort << std::endl;
     running = true;
     StartHeartbeatCheck();
@@ -113,23 +119,23 @@ bool Server::Start(){
  * @brief 停止服务器，关闭socket
  */
 void Server::Stop(){
-    running = false;
-    if(heartbeatThread && heartbeatThread->joinable()){
-        heartbeatThread->join();
+    running = false;  // 设置服务器为非运行状态
+    if(heartbeatThread && heartbeatThread->joinable()){  // 如果线程还在运行
+        heartbeatThread->join();  // 则等待线程结束
     }
-    if(sessionManager){
-        auto sessions = sessionManager->GetAllSessions();
-        for(auto& pair : sessions){
+    if(sessionManager){  // 如果有会话在运行
+        auto sessions = sessionManager->GetAllSessions();  // 获取所有会话
+        for(auto& pair : sessions){  // 遍历所有会话
             ClientSession* session = pair.second;
-            if(session && !session->GetUsername().empty() && userManager){
-                userManager->UpdateUserOnlineStatus(session->GetUsername(), false);
+            if(session && !session->GetUsername().empty() && userManager){  // 如果会话存在且有用户名且有用户管理器
+                userManager->UpdateUserOnlineStatus(session->GetUsername(), false);  // 则更新用户在线状态
             }
-            if(session->GetSocket() != -1){
-                shutdown(session->GetSocket(), SHUT_RDWR);
+            if(session->GetSocket() != -1){  // 如果会话存在socket
+                shutdown(session->GetSocket(), SHUT_RDWR);  // 关闭socket
             }
         }
     }
-    if(serverSocket != -1){
+    if(serverSocket != -1){  // 如果服务器socket未关闭
         shutdown(serverSocket, SHUT_RDWR);
         close(serverSocket);
         serverSocket = -1;
@@ -140,32 +146,31 @@ void Server::Stop(){
  * @brief 接受客户端连接循环
  */
 void Server::AcceptConnections(){
-    while(running){
-        struct sockaddr_in clientAddr;
-        socklen_t clientLen = sizeof(clientAddr);
-        int clientSocket = accept(serverSocket, (struct sockaddr*)&clientAddr, &clientLen);
-        if(clientSocket == -1){
-            if(!running){
+    while(running){  // 如果服务器处于运行状态
+        struct sockaddr_in clientAddr;  // 客户端地址结构体
+        socklen_t clientLen = sizeof(clientAddr);  // 客户端地址长度
+        int clientSocket = accept(serverSocket, (struct sockaddr*)&clientAddr, &clientLen);  // 接受客户端连接
+        if(clientSocket == -1){  // 如果接受连接失败
+            if(!running){  // 如果服务器已停止
+                close(clientSocket);  // 关闭客户端socket
                 break;
             }
             std::cerr << "[Server::AcceptConnections]接受客户端连接失败" << std::endl;
             continue;
         }
-        if(currentConnections.load() >= maxConnections){
+        if(currentConnections.load() >= maxConnections){  // 如果当前连接数已达上限
             std::string response = PackageMessage("{\"type\":\"ERROR\",\"code\":5003,\"msg\":\"服务器繁忙\"}");
-            send(clientSocket, response.c_str(), response.length(), 0);
-            close(clientSocket);
+            send(clientSocket, response.c_str(), response.length(), 0);  // 发送错误响应
+            close(clientSocket);  // 关闭客户端socket
             continue;
         }
-        std::string clientIP = inet_ntoa(clientAddr.sin_addr);
-        int clientPort = ntohs(clientAddr.sin_port);
+        std::string clientIP = inet_ntoa(clientAddr.sin_addr);  // 将客户端IP转为主机字节序
+        int clientPort = ntohs(clientAddr.sin_port);  // 将客户端端口转为主机字节序
+        ClientSession* session = new ClientSession(clientSocket, clientIP, clientPort);  // 创建新会话
+        sessionManager->AddSession(clientSocket, session);  // 添加会话到会话管理器
         std::cout << "[Server::AcceptConnections]客户端连接成功：" << clientIP << ":" << clientPort << std::endl;
-        ClientSession* session = new ClientSession(clientSocket, clientIP, clientPort);
-        sessionManager->AddSession(clientSocket, session);
-        currentConnections++;
-        threadPool->SubmitTask([this, clientSocket](){
-            HandleClient(clientSocket);
-        });
+        currentConnections++;  // 增加当前连接数
+        threadPool->SubmitTask([this, clientSocket](){ HandleClient(clientSocket); });  // 提交处理任务到线程池
     }
 }
 
@@ -174,28 +179,25 @@ void Server::AcceptConnections(){
  * @param clientSocket 客户端socket文件描述符
  */
 void Server::HandleClient(int clientSocket){
-    while(running){
-        std::string data = ReceiveData(clientSocket);
-        if(data.empty()){
+    while(running){  // 如果服务器处于运行状态
+        std::string data = ReceiveData(clientSocket);  // 接收客户端数据
+        if(data.empty()){  // 如果收到空数据
+            std::cout << "[Server::HandleClient]收到空数据" << std::endl;
             break;
         }
-
-        DispatchRequest(clientSocket, data);
+        DispatchRequest(clientSocket, data);  // 分发客户端的请求到各个业务模块
     }
-
-    ClientSession* session = sessionManager->GetSession(clientSocket);
-    if(session){
-        if(!session->GetUsername().empty()){
-            userManager->UpdateUserOnlineStatus(session->GetUsername(), false);
-            userManager->NotifyFriendsStatusChange(session->GetUsername(), UserStatus::Offline);
+    ClientSession* session = sessionManager->GetSession(clientSocket);  // 获取客户端会话
+    if(session){  // 如果会话存在
+        if(!session->GetUsername().empty()){  // 如果有用户名
+            userManager->UpdateUserOnlineStatus(session->GetUsername(), false);  // 更新用户在线状态
+            userManager->NotifyFriendsStatusChange(session->GetUsername(), UserStatus::Offline);  // 通知好友状态改变
         }
-
-        sessionManager->RemoveSession(clientSocket);
-        currentConnections--;
+        sessionManager->RemoveSession(clientSocket);  // 移除会话
+        currentConnections--;  // 减少当前连接数
     }
-
-    close(clientSocket);
-    std::cout << "客户端断开连接" << std::endl;
+    std::cout << "[Server::HandleClient]客户端断开连接" << std::endl;
+    close(clientSocket);  // 关闭客户端socket
 }
 
 /**
@@ -204,27 +206,30 @@ void Server::HandleClient(int clientSocket){
  * @return 返回接收到的消息体字符串
  */
 std::string Server::ReceiveData(int clientSocket){
+    // 接收4字节消息头
     char header[4];
     int bytesRead = recv(clientSocket, header, 4, 0);
     if(bytesRead <= 0){
+        std::cerr << "[Server::ReceiveData]接收消息头失败" << std::endl;
         return "";
     }
-
+    // 解析消息头长度
     uint32_t messageLength = ParseMessageHeader(header);
     if(messageLength == 0 || messageLength > 65536){
+        std::cerr << "[Server::ReceiveData]消息头长度无效" << std::endl;
         return "";
     }
-
+    // 接收消息体
     std::string messageBody(messageLength, '\0');
     int totalRead = 0;
     while(totalRead < messageLength){
         bytesRead = recv(clientSocket, &messageBody[totalRead], messageLength - totalRead, 0);
         if(bytesRead <= 0){
+            std::cerr << "[Server::ReceiveData]接收消息体失败" << std::endl;
             return "";
         }
         totalRead += bytesRead;
     }
-
     return messageBody;
 }
 
@@ -235,6 +240,7 @@ std::string Server::ReceiveData(int clientSocket){
  * @return 发送成功返回true，失败返回false
  */
 bool Server::SendData(int clientSocket, const std::string& data){
+    // 封装消息、发送消息
     std::string packagedData = PackageMessage(data);
     int bytesSent = send(clientSocket, packagedData.c_str(), packagedData.length(), 0);
     return bytesSent > 0;
@@ -356,27 +362,22 @@ void Server::StartHeartbeatCheck(){
  * @brief 心跳检测线程函数，每60秒检测一次，超过180秒无心跳则断开
  */
 void Server::HeartbeatCheckThread(){
-    while(running){
-        std::this_thread::sleep_for(std::chrono::seconds(60));
-        
-        auto sessions = sessionManager->GetAllSessions();
-        time_t currentTime = time(nullptr);
-        
-        for(auto& pair : sessions){
-            int socket = pair.first;
-            ClientSession* session = pair.second;
-            
-            if(session->GetIsConnected() && !session->GetUsername().empty()){
-                time_t lastHeartbeat = session->GetLastHeartbeat();
-                if(difftime(currentTime, lastHeartbeat) > 180){
-                    std::cout << "心跳超时，断开客户端：" << session->GetUsername() << std::endl;
-
-                    userManager->UpdateUserOnlineStatus(session->GetUsername(), false);
-                    userManager->NotifyFriendsStatusChange(session->GetUsername(), UserStatus::Offline);
-                    
-                    shutdown(socket, SHUT_RDWR);
-                    sessionManager->RemoveSession(socket);
-                    currentConnections--;
+    while(running){  // 若服务器为运行状态
+        std::this_thread::sleep_for(std::chrono::seconds(60));  // 休眠60秒
+        auto sessions = sessionManager->GetAllSessions();  // 获取所有会话
+        time_t currentTime = time(nullptr);  // 获取当前时间
+        for(auto& pair : sessions){  // 遍历所有会话
+            int socket = pair.first;  // 获取会话socket
+            ClientSession* session = pair.second;  // 获取会话对象
+            if(session->GetIsConnected() && !session->GetUsername().empty()){  // 若会话已连接且有用户名
+                // 若会话最后心跳时间与当前时间差超过180秒
+                if(difftime(currentTime, session->GetLastHeartbeat()) > 180){
+                    std::cout << "[Server::HeartbeatCheckThread]心跳超时，断开客户端：" << session->GetUsername() << std::endl;
+                    userManager->UpdateUserOnlineStatus(session->GetUsername(), false);  // 更新用户在线状态为离线
+                    userManager->NotifyFriendsStatusChange(session->GetUsername(), UserStatus::Offline);  // 通知好友状态改变
+                    shutdown(socket, SHUT_RDWR);  // 关闭会话套接字
+                    sessionManager->RemoveSession(socket);  // 移除会话
+                    currentConnections--;  // 减少连接数
                 }
             }
         }
@@ -391,21 +392,16 @@ void Server::HeartbeatCheckThread(){
 void Server::DispatchRequest(int clientSocket, const std::string& data){
     Json::Reader reader;
     Json::Value root;
-    
     if(!reader.parse(data, root)){
         std::string response = PackageMessage("{\"type\":\"ERROR\",\"code\":4001,\"msg\":\"JSON解析失败\"}");
         SendData(clientSocket, response);
         return;
     }
-    
     std::string type = root["type"].asString();
-    
     Json::Value dataNode = root["data"];
-    
     Request request;
     request.type = type;
     request.clientSocket = clientSocket;
-    
     if(dataNode.isNull()){
         if(root.isMember("username")){
             request.username = root["username"].asString();
@@ -440,9 +436,7 @@ void Server::DispatchRequest(int clientSocket, const std::string& data){
             request.verifyPassword = dataNode["verifyPassword"].asString();
         }
     }
-    
     Response response;
-    
     if(!userManager){
         response.code = 5001;
         response.msg = "服务器内部错误";
@@ -471,7 +465,6 @@ void Server::DispatchRequest(int clientSocket, const std::string& data){
         response.code = 4002;
         response.msg = "未知的请求类型";
     }
-    
     Json::Value jsonResponse;
     jsonResponse["type"] = type + "_RESPONSE";
     jsonResponse["code"] = response.code;
@@ -479,9 +472,7 @@ void Server::DispatchRequest(int clientSocket, const std::string& data){
     if(!response.data.empty()){
         jsonResponse["data"] = response.data;
     }
-    
     Json::FastWriter writer;
     std::string responseStr = writer.write(jsonResponse);
-    
     SendData(clientSocket, responseStr);
 }

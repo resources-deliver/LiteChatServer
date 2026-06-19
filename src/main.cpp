@@ -11,7 +11,7 @@ static Server* g_server = nullptr;
  * @param signal 信号编号
  */
 void SignalHandler(int signal){
-    std::cout << "[main]接收到关闭服务器信号,正在关闭服务器..." << std::endl;
+    std::cout << "[main]接收到关闭服务器信号,正在等待线程结束后关闭服务器..." << std::endl;
     if(g_server){
         g_server->Stop();
     }
