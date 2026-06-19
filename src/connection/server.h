@@ -40,19 +40,19 @@ private:
     void DispatchRequest(int clientSocket, const std::string& data);
 
 private:
-    int serverSocket;
-    std::string serverIP;
-    int serverPort;
-    int maxConnections;
-    std::atomic<int> currentConnections;
-    ThreadPool* threadPool;
-    DBManager* dbManager;
-    SessionManager* sessionManager;
-    UserManager* userManager;
-    std::thread* heartbeatThread;
-    std::unordered_map<int, ClientSession*> sessionMap;
-    std::mutex sessionMutex;
-    bool running;
+    int serverSocket;  // 服务器套接字描述符
+    std::string serverIP;  // 服务器IP地址
+    int serverPort;  // 服务器端口号
+    int maxConnections;  // 最大连接数
+    std::atomic<int> currentConnections;  // 当前连接数
+    ThreadPool* threadPool;  // 线程池指针
+    DBManager* dbManager;  // 数据库管理指针
+    SessionManager* sessionManager;  // 会话管理指针
+    UserManager* userManager;  // 用户管理指针
+    std::thread* heartbeatThread;  // 心跳检查线程指针
+    std::unordered_map<int, ClientSession*> sessionMap;  // 会话映射表，键为客户端套接字描述符，值为会话指针
+    std::mutex sessionMutex;  // 会话映射表互斥锁
+    bool running;  // 服务器运行状态
 };
 
 #endif // SERVER_H

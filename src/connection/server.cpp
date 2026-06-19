@@ -11,7 +11,7 @@
 #include <jsoncpp/json/json.h>
 
 /**
- * @brief Server构造函数，初始化服务器参数
+ * @brief Server构造函数，初始化类内私有属性
 */
 Server::Server()
     : serverSocket(-1)
@@ -32,7 +32,7 @@ Server::Server()
  * @brief Server析构函数，清理资源
  */
 Server::~Server(){
-    Stop();
+    Stop();  // 停止服务器运行
     if(threadPool){
         delete threadPool;
     }
@@ -48,7 +48,7 @@ Server::~Server(){
 }
 
 /**
- * @brief 设置数据库管理器
+ * @brief 初始化数据库管理器
  * @param dbMgr 数据库管理器指针
  */
 void Server::SetDBManager(DBManager* dbMgr){
@@ -61,57 +61,51 @@ void Server::SetDBManager(DBManager* dbMgr){
  */
 bool Server::Start(){
     if(!dbManager){
-        std::cerr << "数据库管理器未初始化" << std::endl;
+        std::cerr << "[Server::Start]数据库管理器未初始化" << std::endl;
         return false;
     }
-
     threadPool = new ThreadPool(10);
     sessionManager = new SessionManager();
     userManager = new UserManager(dbManager, sessionManager);
-
-    userManager->SetSendCallback([this](int clientSocket, const std::string& data) -> bool {
+    userManager->SetSendCallback([this](int clientSocket, const std::string& data) -> bool{
         return this->SendData(clientSocket, data);
-    });
-
+    });  // 发送数据到回调函数
+    // 创建socket
     serverSocket = socket(AF_INET, SOCK_STREAM, 0);
     if(serverSocket == -1){
-        std::cerr << "创建socket失败" << std::endl;
+        std::cerr << "[Server::Start]创建socket失败" << std::endl;
         return false;
     }
-
+    // 设置端口复用
     int opt = 1;
     int resetport = setsockopt(serverSocket, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
     if(resetport == -1){
-        std::cerr << "设置端口复用失败" << std::endl;
-        close(serverSocket);
+        std::cerr << "[Server::Start]设置端口复用失败" << std::endl;
+        close(serverSocket);  // 关闭socket
         return false;
     }
-
+    // 绑定服务端IP和端口
     struct sockaddr_in serverAddr;
     memset(&serverAddr, 0, sizeof(serverAddr));
     serverAddr.sin_family = AF_INET;
     serverAddr.sin_addr.s_addr = inet_addr(serverIP.c_str());
     serverAddr.sin_port = htons(serverPort);
-
     int bindres = bind(serverSocket, (struct sockaddr*)&serverAddr, sizeof(serverAddr));
     if(bindres == -1){
-        std::cerr << "绑定IP和端口失败" << std::endl;
+        std::cerr << "[Server::Start]绑定IP和端口失败" << std::endl;
         close(serverSocket);
         return false;
     }
-
+    // 监听连接
     int listenres = listen(serverSocket, maxConnections);
     if(listenres == -1){
-        std::cerr << "监听失败" << std::endl;
+        std::cerr << "[Server::Start]监听失败" << std::endl;
         close(serverSocket);
         return false;
     }
-
-    std::cout << "服务器启动成功，监听端口" << serverPort << std::endl;
+    std::cout << "[Server::Start]服务器启动成功，监听端口" << serverPort << std::endl;
     running = true;
-    
     StartHeartbeatCheck();
-    
     return true;
 }
 
@@ -120,11 +114,9 @@ bool Server::Start(){
  */
 void Server::Stop(){
     running = false;
-
     if(heartbeatThread && heartbeatThread->joinable()){
         heartbeatThread->join();
     }
-
     if(sessionManager){
         auto sessions = sessionManager->GetAllSessions();
         for(auto& pair : sessions){
@@ -137,7 +129,6 @@ void Server::Stop(){
             }
         }
     }
-
     if(serverSocket != -1){
         shutdown(serverSocket, SHUT_RDWR);
         close(serverSocket);
@@ -153,30 +144,25 @@ void Server::AcceptConnections(){
         struct sockaddr_in clientAddr;
         socklen_t clientLen = sizeof(clientAddr);
         int clientSocket = accept(serverSocket, (struct sockaddr*)&clientAddr, &clientLen);
-        
         if(clientSocket == -1){
             if(!running){
                 break;
             }
-            std::cerr << "接受客户端连接失败" << std::endl;
+            std::cerr << "[Server::AcceptConnections]接受客户端连接失败" << std::endl;
             continue;
         }
-
         if(currentConnections.load() >= maxConnections){
             std::string response = PackageMessage("{\"type\":\"ERROR\",\"code\":5003,\"msg\":\"服务器繁忙\"}");
             send(clientSocket, response.c_str(), response.length(), 0);
             close(clientSocket);
             continue;
         }
-
         std::string clientIP = inet_ntoa(clientAddr.sin_addr);
         int clientPort = ntohs(clientAddr.sin_port);
-        std::cout << "客户端连接成功：" << clientIP << ":" << clientPort << std::endl;
-
+        std::cout << "[Server::AcceptConnections]客户端连接成功：" << clientIP << ":" << clientPort << std::endl;
         ClientSession* session = new ClientSession(clientSocket, clientIP, clientPort);
         sessionManager->AddSession(clientSocket, session);
         currentConnections++;
-
         threadPool->SubmitTask([this, clientSocket](){
             HandleClient(clientSocket);
         });

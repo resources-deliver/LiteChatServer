@@ -51,7 +51,7 @@ bool DBManager::InitConnectionPool(int size){
         connectionPool.push(conn);  // 将连接添加到连接池队列中
     }
     if(createCount == poolSize){
-        std::cout << "[DBManager::InitConnectionPool]数据库连接已创建" << createCount << "个连接" << std::endl;
+        std::cout << "[DBManager::InitConnectionPool]数据库连接池已创建" << createCount << "个连接" << std::endl;
     }
     return ValidateConnection();  // 验证连接池中的连接是否可用
 }
