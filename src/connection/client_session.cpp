@@ -100,7 +100,7 @@ void ClientSession::UpdateHeartbeat(){
 }
 
 /**
- * @brief 设置连接状态
+ * @brief 设置客户端连接状态
  * @param connected 连接状态
  */
 void ClientSession::SetIsConnected(bool connected){

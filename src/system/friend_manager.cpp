@@ -32,13 +32,17 @@ FriendManager::~FriendManager(){
  */
 Response FriendManager::HandleAddFriend(const Request& request){
     Response response;
-    if(request.targetUsername.empty()){
+    std::string targetUsername = request.targetUsername;
+    if(targetUsername.empty()){
+        targetUsername = request.username;
+    }
+    if(targetUsername.empty()){
         response.code = 1001;
         response.msg = "目标用户名不能为空";
         std::cout << "[FriendManager::HandleAddFriend]目标用户名不能为空" << std::endl;
         return response;
     }
-    if(request.username == request.targetUsername){
+    if(request.username == targetUsername){
         response.code = 3003;
         response.msg = "不能添加自己为好友";
         std::cout << "[FriendManager::HandleAddFriend]不能添加自己为好友" << std::endl;
@@ -52,7 +56,7 @@ Response FriendManager::HandleAddFriend(const Request& request){
         return response;
     }
     int targetUserId = 0;
-    if(!userDAO->GetUserIdByUsername(request.targetUsername, targetUserId)){
+    if(!userDAO->GetUserIdByUsername(targetUsername, targetUserId)){
         response.code = 3001;
         response.msg = "目标用户不存在";
         std::cout << "[FriendManager::HandleAddFriend]目标用户不存在" << std::endl;
@@ -72,7 +76,7 @@ Response FriendManager::HandleAddFriend(const Request& request){
     }
     response.code = 0;
     response.msg = "添加好友成功";
-    std::cout << "[FriendManager::HandleAddFriend]添加好友成功：" << request.username << " -> " << request.targetUsername << std::endl;
+    std::cout << "[FriendManager::HandleAddFriend]添加好友成功：" << request.username << " -> " << targetUsername << std::endl;
     return response;
 }
 
@@ -83,7 +87,11 @@ Response FriendManager::HandleAddFriend(const Request& request){
  */
 Response FriendManager::HandleDeleteFriend(const Request& request){
     Response response;
-    if(request.targetUsername.empty()){
+    std::string targetUsername = request.targetUsername;
+    if(targetUsername.empty()){
+        targetUsername = request.username;
+    }
+    if(targetUsername.empty()){
         response.code = 1001;
         response.msg = "目标用户名不能为空";
         std::cout << "[FriendManager::HandleDeleteFriend]目标用户名不能为空" << std::endl;
@@ -97,7 +105,7 @@ Response FriendManager::HandleDeleteFriend(const Request& request){
         return response;
     }
     int targetUserId = 0;
-    if(!userDAO->GetUserIdByUsername(request.targetUsername, targetUserId)){
+    if(!userDAO->GetUserIdByUsername(targetUsername, targetUserId)){
         response.code = 3001;
         response.msg = "目标用户不存在";
         std::cout << "[FriendManager::HandleDeleteFriend]目标用户不存在" << std::endl;
@@ -118,7 +126,7 @@ Response FriendManager::HandleDeleteFriend(const Request& request){
     friendDAO->DeleteMessagesBetweenUsers(userId, targetUserId);
     response.code = 0;
     response.msg = "删除好友成功";
-    std::cout << "[FriendManager::HandleDeleteFriend]删除好友成功：" << request.username << " -> " << request.targetUsername << "（含相关消息记录）" << std::endl;
+    std::cout << "[FriendManager::HandleDeleteFriend]删除好友成功：" << request.username << " -> " << targetUsername << "（含相关消息记录）" << std::endl;
     return response;
 }
 
@@ -167,14 +175,18 @@ Response FriendManager::HandleFriendList(const Request& request){
  */
 Response FriendManager::HandleFriendStatus(const Request& request){
     Response response;
-    if(request.targetUsername.empty()){
+    std::string targetUsername = request.targetUsername;
+    if(targetUsername.empty()){
+        targetUsername = request.username;
+    }
+    if(targetUsername.empty()){
         response.code = 1001;
         response.msg = "目标用户名不能为空";
         std::cout << "[FriendManager::HandleFriendStatus]目标用户名不能为空" << std::endl;
         return response;
     }
     int targetUserId = 0;
-    if(!userDAO->GetUserIdByUsername(request.targetUsername, targetUserId)){
+    if(!userDAO->GetUserIdByUsername(targetUsername, targetUserId)){
         response.code = 3001;
         response.msg = "目标用户不存在";
         std::cout << "[FriendManager::HandleFriendStatus]目标用户不存在" << std::endl;
@@ -204,14 +216,18 @@ Response FriendManager::HandleFriendStatus(const Request& request){
  */
 Response FriendManager::HandleQueryFriend(const Request& request){
     Response response;
-    if(request.targetUsername.empty()){
+    std::string targetUsername = request.targetUsername;
+    if(targetUsername.empty()){
+        targetUsername = request.username;
+    }
+    if(targetUsername.empty()){
         response.code = 1001;
         response.msg = "目标用户名不能为空";
         std::cout << "[FriendManager::HandleQueryFriend]目标用户名不能为空" << std::endl;
         return response;
     }
     int targetUserId = 0;
-    if(!userDAO->GetUserIdByUsername(request.targetUsername, targetUserId)){
+    if(!userDAO->GetUserIdByUsername(targetUsername, targetUserId)){
         response.code = 3001;
         response.msg = "目标用户不存在";
         std::cout << "[FriendManager::HandleQueryFriend]目标用户不存在" << std::endl;
@@ -225,13 +241,13 @@ Response FriendManager::HandleQueryFriend(const Request& request){
         return response;
     }
     Json::Value dataObj;
-    dataObj["username"] = request.targetUsername;
+    dataObj["username"] = targetUsername;
     dataObj["status"] = isOnline ? "online" : "offline";
     Json::FastWriter writer;
     response.data = writer.write(dataObj);
     response.code = 0;
     response.msg = "查询成功";
-    std::cout << "[FriendManager::HandleQueryFriend]查询好友信息成功,目标用户名: " << request.targetUsername << std::endl;
+    std::cout << "[FriendManager::HandleQueryFriend]查询好友信息成功,目标用户名: " << targetUsername << std::endl;
     return response;
 }
 

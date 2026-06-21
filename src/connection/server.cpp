@@ -2,9 +2,11 @@
 #include <iostream>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <cstring>
+#include <cerrno>
 #include <sstream>
 #include <thread>
 #include <chrono>
@@ -172,6 +174,8 @@ void Server::AcceptConnections(){
             close(clientSocket);  // 关闭客户端socket
             continue;
         }
+        int flag = 1;
+        setsockopt(clientSocket, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));
         std::string clientIP = inet_ntoa(clientAddr.sin_addr);  // 将客户端IP转为主机字节序
         int clientPort = ntohs(clientAddr.sin_port);  // 将客户端端口转为主机字节序
         ClientSession* session = new ClientSession(clientSocket, clientIP, clientPort);  // 创建新会话
@@ -221,7 +225,7 @@ std::string Server::ReceiveData(int clientSocket){
     char header[4];
     int bytesRead = recv(clientSocket, header, 4, 0);
     if(bytesRead <= 0){
-        std::cerr << "[Server::ReceiveData]接收消息头失败" << std::endl;
+        std::cerr << "[Server::ReceiveData]接收消息头失败,bytesRead: " << bytesRead << ", errno: " << errno << " (" << strerror(errno) << ")" << std::endl;
         return "";
     }
     // 解析消息头长度
@@ -253,8 +257,18 @@ std::string Server::ReceiveData(int clientSocket){
 bool Server::SendData(int clientSocket, const std::string& data){
     // 封装消息、发送消息
     std::string packagedData = PackageMessage(data);
-    int bytesSent = send(clientSocket, packagedData.c_str(), packagedData.length(), 0);
-    return bytesSent > 0;
+    int totalSent = 0;
+    int totalLength = packagedData.length();
+    while(totalSent < totalLength){
+        int bytesSent = send(clientSocket, packagedData.c_str() + totalSent, totalLength - totalSent, 0);
+        if(bytesSent <= 0){
+            std::cerr << "[Server::SendData]发送数据失败,errno: " << errno << " (" << strerror(errno) << ")" << std::endl;
+            return false;
+        }
+        totalSent += bytesSent;
+    }
+    std::cout << "[Server::SendData]发送数据成功,长度: " << totalSent << std::endl;
+    return true;
 }
 
 /**
@@ -407,12 +421,16 @@ void Server::DispatchRequest(int clientSocket, const std::string& data){
     Json::Reader reader;
     Json::Value root;
     if(!reader.parse(data, root)){
-        std::string response = PackageMessage("{\"type\":\"ERROR\",\"code\":4001,\"msg\":\"JSON解析失败\"}");
+        std::string response = "{\"type\":\"ERROR\",\"code\":4001,\"msg\":\"JSON解析失败\"}";
         SendData(clientSocket, response);
         return;
     }
     std::string type = root["type"].asString();
     Json::Value dataNode = root["data"];
+    ClientSession* session = sessionManager->GetSession(clientSocket);
+    if(session){
+        session->UpdateHeartbeat();
+    }
     Request request;
     request.type = type;
     request.clientSocket = clientSocket;
@@ -454,6 +472,23 @@ void Server::DispatchRequest(int clientSocket, const std::string& data){
         }
         if(dataNode.isMember("targetUsername")){
             request.targetUsername = dataNode["targetUsername"].asString();
+        }
+    }
+    if(request.username.empty()){
+        auto session = sessionManager->GetSession(clientSocket);
+        if(session && !session->GetUsername().empty()){
+            request.username = session->GetUsername();
+            std::cout << "[Server::DispatchRequest]从会话中获取用户名：" << request.username << std::endl;
+        }
+    }
+    else{
+        auto session = sessionManager->GetSession(clientSocket);
+        if(session && !session->GetUsername().empty()){
+            if(request.targetUsername.empty()){
+                request.targetUsername = request.username;
+            }
+            request.username = session->GetUsername();
+            std::cout << "[Server::DispatchRequest]从会话中获取用户名：" << request.username << std::endl;
         }
     }
     Response response;
@@ -522,10 +557,6 @@ void Server::DispatchRequest(int clientSocket, const std::string& data){
         }
     }
     else if(type == "HEARTBEAT"){
-        ClientSession* session = sessionManager->GetSession(clientSocket);
-        if(session){
-            session->UpdateHeartbeat();
-        }
         response.code = 0;
         response.msg = "心跳正常";
     }
@@ -549,5 +580,7 @@ void Server::DispatchRequest(int clientSocket, const std::string& data){
     }
     Json::FastWriter writer;
     std::string responseStr = writer.write(jsonResponse);
-    SendData(clientSocket, responseStr);
+    if(SendData(clientSocket, responseStr)){
+        std::cout << "[Server::DispatchRequest]响应已发送,类型: " << (type + "_RESPONSE") << std::endl;
+    }
 }

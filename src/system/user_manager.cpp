@@ -234,7 +234,10 @@ Response UserManager::HandleQueryStatus(const Request& request){
     }
     response.code = 0;
     response.msg = isOnline ? "在线" : "离线";
-    response.data = isOnline ? "online" : "offline";
+    Json::Value dataObj;
+    dataObj["status"] = isOnline ? "online" : "offline";
+    Json::FastWriter writer;
+    response.data = writer.write(dataObj);
     std::cout << "[UserManager::HandleQueryStatus]用户状态查询成功：" << request.username << std::endl;
     return response;
 }
