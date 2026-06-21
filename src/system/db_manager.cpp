@@ -25,9 +25,9 @@ DBManager::~DBManager(){
     while(!connectionPool.empty()){  // 若MYSQL连接池不为空
         MYSQL* conn = connectionPool.front();  // 获取连接池队头连接
         connectionPool.pop();  // 从连接池队列中移除队头连接
-        DestroyConnection(conn);  // 关闭连接资源
-        shutDownCount++;
-        if(shutDownCount == poolSize){
+        DestroyConnection(conn);  // 关闭获取的连接
+        shutDownCount++;  // 关闭的连接次数加一
+        if(shutDownCount == poolSize){  // 如果关闭连接次数等于连接池大小
             std::cout << "[DBManager::~DBManager]数据库连接已关闭" << shutDownCount << "个连接" << std::endl;
         }
     }
@@ -47,10 +47,10 @@ bool DBManager::InitConnectionPool(int size){
             std::cerr << "[DBManager::InitConnectionPool]创建MYSQL连接" << i + 1 << "失败" << std::endl;
             return false;
         }
-        createCount++;
-        connectionPool.push(conn);  // 将连接添加到连接池队列中
+        createCount++;  // 创建的连接次数加一
+        connectionPool.push(conn);  // 将创建的连接添加到连接池队列中
     }
-    if(createCount == poolSize){
+    if(createCount == poolSize){  // 如果创建的连接次数等于连接池大小
         std::cout << "[DBManager::InitConnectionPool]数据库连接池已创建" << createCount << "个连接" << std::endl;
     }
     return ValidateConnection();  // 验证连接池中的连接是否可用
@@ -61,7 +61,7 @@ bool DBManager::InitConnectionPool(int size){
  * @return 返回MySQL连接指针，如果连接池耗尽则等待
  */
 MYSQL* DBManager::GetConnection(){
-    std::unique_lock<std::mutex> lock(poolMutex);
+    std::unique_lock<std::mutex> lock(poolMutex);  // 加锁使得共享资源同一时间只有一个线程访问
     poolCondition.wait(lock, [this] { return !connectionPool.empty(); });  // 使用条件变量等待连接池有可用连接
     if(connectionPool.empty()){  // 如果连接池为空
         std::cerr << "[DBManager::GetConnection]连接池为空，无法获取连接" << std::endl;
@@ -73,12 +73,12 @@ MYSQL* DBManager::GetConnection(){
 }
 
 /**
- * @brief 释放连接
+ * @brief 将连接重新添加到连接池队列中
  * @param conn 要释放的MySQL连接指针
  */
 void DBManager::ReleaseConnection(MYSQL* conn){
-    std::lock_guard<std::mutex> lock(poolMutex);
-    connectionPool.push(conn);  // 将连接添加到连接池队列中
+    std::lock_guard<std::mutex> lock(poolMutex);  // 加锁使得共享资源同一时间只有一个线程访问
+    connectionPool.push(conn);  // 将连接重新添加到连接池队列中
     poolCondition.notify_one();  // 使用条件变量通知1个线程：等待连接池有可用连接的线程
 }
 
@@ -103,7 +103,7 @@ bool DBManager::ValidateConnection(){
             valid = false;  // 标记查询无效
         }
     }
-    ReleaseConnection(conn);  // 释放为了验证而获取的连接
+    ReleaseConnection(conn);  // 将连接重新添加到连接池队列中
     return valid;
 }
 

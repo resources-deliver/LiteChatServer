@@ -36,7 +36,7 @@ Server::Server()
  * @brief Server析构函数，清理资源
  */
 Server::~Server(){
-    Stop();  // 停止服务器运行
+    Stop();
     if(threadPool){
         delete threadPool;
     }
@@ -70,7 +70,7 @@ void Server::SetDBManager(DBManager* dbMgr){
  * @return 启动成功返回true，失败返回false
  */
 bool Server::Start(){
-    if(!dbManager){  // 如果数据库管理器未初始化
+    if(!dbManager){
         std::cerr << "[Server::Start]数据库管理器未初始化" << std::endl;
         return false;
     }
@@ -93,14 +93,14 @@ bool Server::Start(){
     );
     // 创建socket
     serverSocket = socket(AF_INET, SOCK_STREAM, 0);
-    if(serverSocket == -1){  // 如果创建socket失败
+    if(serverSocket == -1){
         std::cerr << "[Server::Start]创建socket失败" << std::endl;
         return false;
     }
     // 设置端口复用
     int opt = 1;
     int resetport = setsockopt(serverSocket, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
-    if(resetport == -1){  // 如果设置端口复用失败
+    if(resetport == -1){
         std::cerr << "[Server::Start]设置端口复用失败" << std::endl;
         close(serverSocket);
         return false;
@@ -113,14 +113,14 @@ bool Server::Start(){
     serverAddr.sin_port = htons(serverPort);
     // 绑定服务端IP和端口
     int bindres = bind(serverSocket, (struct sockaddr*)&serverAddr, sizeof(serverAddr));
-    if(bindres == -1){  // 如果绑定IP和端口失败
+    if(bindres == -1){
         std::cerr << "[Server::Start]绑定IP和端口失败" << std::endl;
         close(serverSocket);
         return false;
     }
     // 监听连接
     int listenres = listen(serverSocket, maxConnections);
-    if(listenres == -1){  // 如果监听失败
+    if(listenres == -1){
         std::cerr << "[Server::Start]监听失败" << std::endl;
         close(serverSocket);
         return false;
@@ -170,7 +170,7 @@ void Server::AcceptConnections(){
         struct sockaddr_in clientAddr;  // 客户端地址结构体
         socklen_t clientLen = sizeof(clientAddr);  // 客户端地址长度
         int clientSocket = accept(serverSocket, (struct sockaddr*)&clientAddr, &clientLen);  // 接受客户端连接
-        if(clientSocket == -1){  // 如果接受连接失败
+        if(clientSocket == -1){
             if(!running){  // 如果服务器已停止
                 close(clientSocket);  // 关闭客户端socket
                 break;
@@ -624,6 +624,6 @@ void Server::DispatchRequest(int clientSocket, const std::string& data){
     Json::FastWriter writer;
     std::string responseStr = writer.write(jsonResponse);
     if(SendData(clientSocket, responseStr)){
-        std::cout << "[Server::DispatchRequest]响应已发送,类型: " << (type + "_RESPONSE") << std::endl;
+        std::cout << "[Server::DispatchRequest]响应已发送, 类型: " << (type + "_RESPONSE") << std::endl;
     }
 }

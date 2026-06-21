@@ -15,18 +15,15 @@ FriendDAO::FriendDAO(DBManager* dbManager)
 /**
  * @brief FriendDAO析构函数
  */
-FriendDAO::~FriendDAO()
-{
-}
+FriendDAO::~FriendDAO(){}
 
 /**
- * @brief 向数据库插入好友关系（确保user_id1 < user_id2）
+ * @brief 向数据库插入好友关系
  * @param userId1 用户ID1
  * @param userId2 用户ID2
  * @return 插入成功返回true，失败返回false
  */
 bool FriendDAO::InsertFriend(int userId1, int userId2){
-    // 确保user_id1 < user_id2
     if(userId1 > userId2){
         std::swap(userId1, userId2);
     }
@@ -39,11 +36,11 @@ bool FriendDAO::InsertFriend(int userId1, int userId2){
     sql << "INSERT INTO friends (user_id1, user_id2) VALUES (" << userId1 << ", " << userId2 << ")";
     bool result = dbManager->ExecuteUpdate(conn, sql.str());
     if(!result){
-        std::cerr << "[FriendDAO::InsertFriend]插入好友关系失败,用户ID1: " << userId1 << ", 用户ID2: " << userId2 << std::endl;
+        std::cerr << "[FriendDAO::InsertFriend]向数据库插入好友关系失败" << std::endl;
         dbManager->ReleaseConnection(conn);
         return false;
     }
-    std::cout << "[FriendDAO::InsertFriend]插入好友关系成功,用户ID1: " << userId1 << ", 用户ID2: " << userId2 << std::endl;
+    std::cout << "[FriendDAO::InsertFriend]向数据库插入好友关系成功" << std::endl;
     dbManager->ReleaseConnection(conn);
     return result;
 }
@@ -67,11 +64,11 @@ bool FriendDAO::DeleteFriend(int userId1, int userId2){
     sql << "DELETE FROM friends WHERE user_id1 = " << userId1 << " AND user_id2 = " << userId2;
     bool result = dbManager->ExecuteUpdate(conn, sql.str());
     if(!result){
-        std::cerr << "[FriendDAO::DeleteFriend]删除好友关系失败,用户ID1: " << userId1 << ", 用户ID2: " << userId2 << std::endl;
+        std::cerr << "[FriendDAO::DeleteFriend]从数据库删除好友关系失败" << std::endl;
         dbManager->ReleaseConnection(conn);
         return false;
     }
-    std::cout << "[FriendDAO::DeleteFriend]删除好友关系成功,用户ID1: " << userId1 << ", 用户ID2: " << userId2 << std::endl;
+    std::cout << "[FriendDAO::DeleteFriend]从数据库删除好友关系成功" << std::endl;
     dbManager->ReleaseConnection(conn);
     return result;
 }
@@ -93,11 +90,11 @@ bool FriendDAO::DeleteMessagesBetweenUsers(int userId1, int userId2){
         << "OR (sender_id = " << userId2 << " AND receiver_id = " << userId1 << ")";
     bool result = dbManager->ExecuteUpdate(conn, sql.str());
     if(!result){
-        std::cerr << "[FriendDAO::DeleteMessagesBetweenUsers]删除消息记录失败,用户ID1: " << userId1 << ", 用户ID2: " << userId2 << std::endl;
+        std::cerr << "[FriendDAO::DeleteMessagesBetweenUsers]从数据库删除两个用户之间的所有消息记录失败" << std::endl;
         dbManager->ReleaseConnection(conn);
         return false;
     }
-    std::cout << "[FriendDAO::DeleteMessagesBetweenUsers]删除消息记录成功,用户ID1: " << userId1 << ", 用户ID2: " << userId2 << std::endl;
+    std::cout << "[FriendDAO::DeleteMessagesBetweenUsers]从数据库删除两个用户之间的所有消息记录成功" << std::endl;
     dbManager->ReleaseConnection(conn);
     return result;
 }
@@ -121,13 +118,14 @@ bool FriendDAO::CheckFriendship(int userId1, int userId2){
     sql << "SELECT COUNT(*) FROM friends WHERE user_id1 = " << userId1 << " AND user_id2 = " << userId2;
     MYSQL_RES* result = dbManager->ExecuteQuery(conn, sql.str());
     if(!result){
-        std::cerr << "[FriendDAO::CheckFriendship]查询好友关系失败,用户ID1: " << userId1 << ", 用户ID2: " << userId2 << std::endl;
+        std::cerr << "[FriendDAO::CheckFriendship]从数据库检查两个用户是否为好友关系失败" << std::endl;
         dbManager->ReleaseConnection(conn);
         return false;
     }
-    MYSQL_ROW row = mysql_fetch_row(result);
-    bool exists = (row && std::stoi(row[0]) > 0);
-    mysql_free_result(result);
+    MYSQL_ROW row = mysql_fetch_row(result);  // 获取查询结果集的第一行
+    bool exists = (row && std::stoi(row[0]) > 0);  // 是否存在好友关系
+    std::cout << "[FriendDAO::CheckFriendship]从数据库检查两个用户是否为好友关系成功" << std::endl;
+    mysql_free_result(result);  // 释放查询结果集
     dbManager->ReleaseConnection(conn);
     return exists;
 }
@@ -151,7 +149,7 @@ bool FriendDAO::GetFriendList(int userId, std::vector<std::pair<std::string, boo
         << "AND u.user_id != " << userId;
     MYSQL_RES* result = dbManager->ExecuteQuery(conn, sql.str());
     if(!result){
-        std::cerr << "[FriendDAO::GetFriendList]查询好友列表失败,用户ID: " << userId << std::endl;
+        std::cerr << "[FriendDAO::GetFriendList]从数据库查询用户的所有好友（用户名和在线状态）失败" << std::endl;
         dbManager->ReleaseConnection(conn);
         return false;
     }
@@ -161,7 +159,7 @@ bool FriendDAO::GetFriendList(int userId, std::vector<std::pair<std::string, boo
         bool isOnline = (row[1] && std::stoi(row[1]) == 1);
         friends.push_back({friendUsername, isOnline});
     }
-    std::cout << "[FriendDAO::GetFriendList]查询好友列表成功,用户ID: " << userId << ", 好友数量: " << friends.size() << std::endl;
+    std::cout << "[FriendDAO::GetFriendList]从数据库查询用户的所有好友（用户名和在线状态）成功" << std::endl;
     mysql_free_result(result);
     dbManager->ReleaseConnection(conn);
     return true;
