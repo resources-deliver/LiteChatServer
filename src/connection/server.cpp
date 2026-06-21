@@ -26,6 +26,7 @@ Server::Server()
     , sessionManager(nullptr)
     , userManager(nullptr)
     , friendManager(nullptr)
+    , messageManager(nullptr)
     , heartbeatThread(nullptr)
     , running(false)
 {
@@ -47,6 +48,9 @@ Server::~Server(){
     }
     if(friendManager){
         delete friendManager;
+    }
+    if(messageManager){
+        delete messageManager;
     }
     if(heartbeatThread){
         delete heartbeatThread;
@@ -75,8 +79,14 @@ bool Server::Start(){
     sessionManager = new SessionManager();
     userManager = new UserManager(dbManager, sessionManager);
     friendManager = new FriendManager(dbManager);
+    messageManager = new MessageManager(dbManager, sessionManager);
     // 发送数据到回调函数
     userManager->SetSendCallback(
+        [this](int clientSocket, const std::string& data){
+            return this->SendData(clientSocket, data);
+        }
+    );
+    messageManager->SetSendCallback(
         [this](int clientSocket, const std::string& data){
             return this->SendData(clientSocket, data);
         }
@@ -453,6 +463,12 @@ void Server::DispatchRequest(int clientSocket, const std::string& data){
         if(root.isMember("targetUsername")){
             request.targetUsername = root["targetUsername"].asString();
         }
+        if(root.isMember("content")){
+            request.content = root["content"].asString();
+        }
+        if(root.isMember("count")){
+            request.count = root["count"].asInt();
+        }
     }
     else{
         if(dataNode.isMember("username")){
@@ -472,6 +488,12 @@ void Server::DispatchRequest(int clientSocket, const std::string& data){
         }
         if(dataNode.isMember("targetUsername")){
             request.targetUsername = dataNode["targetUsername"].asString();
+        }
+        if(dataNode.isMember("content")){
+            request.content = dataNode["content"].asString();
+        }
+        if(dataNode.isMember("count")){
+            request.count = dataNode["count"].asInt();
         }
     }
     if(request.username.empty()){
@@ -503,6 +525,9 @@ void Server::DispatchRequest(int clientSocket, const std::string& data){
         response = userManager->HandleLogin(request);
         if(response.code == 0 && friendManager){
             friendManager->CacheFriendList(request.username);
+        }
+        if(response.code == 0 && messageManager){
+            messageManager->PushOfflineMessages(request.username);
         }
     }
     else if(type == "UPDATE_USER"){
@@ -550,6 +575,24 @@ void Server::DispatchRequest(int clientSocket, const std::string& data){
     else if(type == "QUERY_FRIEND"){
         if(friendManager){
             response = friendManager->HandleQueryFriend(request);
+        }
+        else{
+            response.code = 5001;
+            response.msg = "服务器内部错误";
+        }
+    }
+    else if(type == "SEND_MSG"){
+        if(messageManager){
+            response = messageManager->HandleSendMessage(request);
+        }
+        else{
+            response.code = 5001;
+            response.msg = "服务器内部错误";
+        }
+    }
+    else if(type == "HISTORY_MSG"){
+        if(messageManager){
+            response = messageManager->HandleHistoryMessages(request);
         }
         else{
             response.code = 5001;

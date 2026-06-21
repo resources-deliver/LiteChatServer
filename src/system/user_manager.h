@@ -27,6 +27,8 @@ struct Request{
     std::string newPassword;  // 新密码
     std::string verifyPassword;  // 验证密码
     std::string targetUsername;  // 目标用户名
+    std::string content;  // 消息内容
+    int count;  // 查询条数
     int clientSocket;  // 客户端套接字描述符
 };
 

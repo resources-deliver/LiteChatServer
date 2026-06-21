@@ -29,9 +29,11 @@ set(SOURCES
     src/system/thread_pool.cpp
     src/system/user_dao.cpp
     src/system/friend_dao.cpp
+    src/system/message_dao.cpp
     src/system/session_manager.cpp
     src/system/user_manager.cpp
     src/system/friend_manager.cpp
+    src/system/message_manager.cpp
     src/connection/server.cpp
     src/connection/client_session.cpp
 )
