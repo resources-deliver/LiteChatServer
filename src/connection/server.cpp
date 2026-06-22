@@ -394,20 +394,20 @@ void Server::StartHeartbeatCheck(){
 }
 
 /**
- * @brief 心跳检测线程函数，每60秒检测一次，超过180秒无心跳则断开
+ * @brief 心跳检测线程函数，每30秒检测一次，超过10分钟客户端无操作则断开
  */
 void Server::HeartbeatCheckThread(){
     while(running){  // 若服务器为运行状态
-        std::this_thread::sleep_for(std::chrono::seconds(60));  // 休眠60秒
+        std::this_thread::sleep_for(std::chrono::seconds(30));  // 休眠30秒
         auto sessions = sessionManager->GetAllSessions();  // 获取所有会话
         time_t currentTime = time(nullptr);  // 获取当前时间
         for(auto& pair : sessions){  // 遍历所有会话
             int socket = pair.first;  // 获取会话socket
             ClientSession* session = pair.second;  // 获取会话对象
             if(session->GetIsConnected() && !session->GetUsername().empty()){  // 若会话已连接且有用户名
-                // 若会话最后心跳时间与当前时间差超过180秒
-                if(difftime(currentTime, session->GetLastHeartbeat()) > 180){
-                    std::cout << "[Server::HeartbeatCheckThread]心跳超时，断开客户端：" << session->GetUsername() << std::endl;
+                // 若会话最后心跳时间与当前时间差超过10分钟
+                if(difftime(currentTime, session->GetLastHeartbeat()) > 600){
+                    std::cout << "[Server::HeartbeatCheckThread]客户端10分钟无响应, 心跳超时, 断开客户端: " << session->GetUsername() << std::endl;
                     userManager->UpdateUserOnlineStatus(session->GetUsername(), false);  // 更新用户在线状态为离线
                     userManager->NotifyFriendsStatusChange(session->GetUsername(), UserStatus::Offline);  // 通知好友状态改变
                     if(friendManager){

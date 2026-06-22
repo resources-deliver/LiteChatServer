@@ -32,7 +32,7 @@ bool UserDAO::InsertUser(const std::string& username, const std::string& passwor
     sql << "INSERT INTO users (username, password_hash) VALUES ('" << username << "', '" << passwordHash << "')";
     bool result = dbManager->ExecuteUpdate(conn, sql.str());
     if(!result){
-        std::cerr << "[UserDAO::InsertUser]插入用户到数据库失败" << std::endl;
+        std::cerr << "[UserDAO::InsertUser]插入用户到数据库失败, ExecuteUpdate结果失败" << std::endl;
         dbManager->ReleaseConnection(conn);
         return false;
     }
@@ -58,13 +58,13 @@ bool UserDAO::GetUserByUsername(const std::string& username, int& userId, std::s
     sql << "SELECT user_id, password_hash FROM users WHERE username = '" << username << "'";
     MYSQL_RES* result = dbManager->ExecuteQuery(conn, sql.str());
     if(!result){
-        std::cerr << "[UserDAO::GetUserByUsername]从数据库查询用户信息失败" << std::endl;
+        std::cerr << "[UserDAO::GetUserByUsername]从数据库查询用户信息失败, ExecuteQuery结果为空" << std::endl;
         dbManager->ReleaseConnection(conn);
         return false;
     }
     MYSQL_ROW row = mysql_fetch_row(result);
     if(!row){
-        std::cerr << "[UserDAO::GetUserByUsername]从数据库查询到用户不存在" << std::endl;
+        std::cerr << "[UserDAO::GetUserByUsername]从数据库查询用户信息失败, ExecuteQuery结果首行为空" << std::endl;
         mysql_free_result(result);
         dbManager->ReleaseConnection(conn);
         return false;
@@ -93,7 +93,7 @@ bool UserDAO::UpdateUsername(int userId, const std::string& newUsername){
     sql << "UPDATE users SET username = '" << newUsername << "' WHERE user_id = " << userId;
     bool result = dbManager->ExecuteUpdate(conn, sql.str());
     if(!result){
-        std::cerr << "[UserDAO::UpdateUsername]更新用户名到数据库失败" << std::endl;
+        std::cerr << "[UserDAO::UpdateUsername]更新用户名到数据库失败, ExecuteUpdate结果失败" << std::endl;
         dbManager->ReleaseConnection(conn);
         return false;
     }
@@ -118,7 +118,7 @@ bool UserDAO::UpdatePassword(int userId, const std::string& newPasswordHash){
     sql << "UPDATE users SET password_hash = '" << newPasswordHash << "' WHERE user_id = " << userId;
     bool result = dbManager->ExecuteUpdate(conn, sql.str());
     if(!result){
-        std::cerr << "[UserDAO::UpdatePassword]更新用户密码到数据库失败" << std::endl;
+        std::cerr << "[UserDAO::UpdatePassword]更新用户密码到数据库失败, ExecuteUpdate结果失败" << std::endl;
         dbManager->ReleaseConnection(conn);
         return false;
     }
@@ -143,7 +143,7 @@ bool UserDAO::UpdateOnlineStatus(int userId, bool isOnline){
     sql << "UPDATE users SET is_online = " << (isOnline ? 1 : 0) << " WHERE user_id = " << userId;
     bool result = dbManager->ExecuteUpdate(conn, sql.str());
     if(!result){
-        std::cerr << "[UserDAO::UpdateOnlineStatus]更新用户在线状态到数据库失败" << std::endl;
+        std::cerr << "[UserDAO::UpdateOnlineStatus]更新用户在线状态到数据库失败, ExecuteUpdate结果失败" << std::endl;
         dbManager->ReleaseConnection(conn);
         return false;
     }
@@ -167,7 +167,7 @@ bool UserDAO::UpdateLastLoginTime(int userId){
     sql << "UPDATE users SET last_login_time = NOW() WHERE user_id = " << userId;
     bool result = dbManager->ExecuteUpdate(conn, sql.str());
     if(!result){
-        std::cerr << "[UserDAO::UpdateLastLoginTime]更新用户最后登录时间到数据库失败" << std::endl;
+        std::cerr << "[UserDAO::UpdateLastLoginTime]更新用户最后登录时间到数据库失败, ExecuteUpdate结果失败" << std::endl;
         dbManager->ReleaseConnection(conn);
         return false;
     }
@@ -191,19 +191,20 @@ bool UserDAO::CheckUsernameExists(const std::string& username){
     sql << "SELECT COUNT(*) FROM users WHERE username = '" << username << "'";
     MYSQL_RES* result = dbManager->ExecuteQuery(conn, sql.str());
     if(!result){
-        std::cerr << "[UserDAO::CheckUsernameExists]从数据库检查用户名是否已存在失败" << std::endl;
+        std::cerr << "[UserDAO::CheckUsernameExists]从数据库检查用户名是否已存在失败, ExecuteQuery结果为空" << std::endl;
         dbManager->ReleaseConnection(conn);
         return false;
     }
     MYSQL_ROW row = mysql_fetch_row(result);
     if(!row){
-        std::cerr << "[UserDAO::CheckUsernameExists]从数据库检查用户名是否已存在失败" << std::endl;
+        std::cerr << "[UserDAO::CheckUsernameExists]从数据库检查用户名是否已存在失败, ExecuteQuery结果首行为空" << std::endl;
         mysql_free_result(result);
         dbManager->ReleaseConnection(conn);
         return false;
     }
     bool exists = false;
     if(row && std::stoi(row[0]) > 0){
+        std::cout << "[UserDAO::CheckUsernameExists]从数据库检查用户名是否已存在成功, 用户名已存在" << std::endl;
         exists = true;
     }
     std::cout << "[UserDAO::CheckUsernameExists]从数据库检查用户名是否已存在成功" << std::endl;
@@ -228,13 +229,13 @@ bool UserDAO::GetUserOnlineStatus(int userId, bool& isOnline){
     sql << "SELECT is_online FROM users WHERE user_id = " << userId;
     MYSQL_RES* result = dbManager->ExecuteQuery(conn, sql.str());
     if(!result){
-        std::cerr << "[UserDAO::GetUserOnlineStatus]从数据库查询用户在线状态失败" << std::endl;
+        std::cerr << "[UserDAO::GetUserOnlineStatus]从数据库查询用户在线状态失败, ExecuteQuery结果为空" << std::endl;
         dbManager->ReleaseConnection(conn);
         return false;
     }
     MYSQL_ROW row = mysql_fetch_row(result);
     if(!row){
-        std::cerr << "[UserDAO::GetUserOnlineStatus]从数据库查询用户在线状态失败" << std::endl;
+        std::cerr << "[UserDAO::GetUserOnlineStatus]从数据库查询用户在线状态失败, ExecuteQuery结果首行为空" << std::endl;
         mysql_free_result(result);
         dbManager->ReleaseConnection(conn);
         return false;
@@ -259,11 +260,10 @@ bool UserDAO::UpdateOnlineStatusByUsername(const std::string& username, bool isO
         return false;
     }
     std::ostringstream sql;
-    sql << "UPDATE users SET is_online = " << (isOnline ? 1 : 0)
-        << " WHERE username = '" << username << "'";
+    sql << "UPDATE users SET is_online = " << (isOnline ? 1 : 0) << " WHERE username = '" << username << "'";
     bool result = dbManager->ExecuteUpdate(conn, sql.str());
     if(!result){
-        std::cerr << "[UserDAO::UpdateOnlineStatusByUsername]根据用户名更新在线状态到数据库失败" << std::endl;
+        std::cerr << "[UserDAO::UpdateOnlineStatusByUsername]根据用户名更新在线状态到数据库失败, ExecuteUpdate结果失败" << std::endl;
         dbManager->ReleaseConnection(conn);
         return false;
     }
@@ -288,12 +288,13 @@ bool UserDAO::GetUserIdByUsername(const std::string& username, int& userId){
     sql << "SELECT user_id FROM users WHERE username = '" << username << "'";
     MYSQL_RES* result = dbManager->ExecuteQuery(conn, sql.str());
     if(!result){
-        std::cerr << "[UserDAO::GetUserIdByUsername]根据用户名从数据库查询用户ID失败" << std::endl;
+        std::cerr << "[UserDAO::GetUserIdByUsername]根据用户名从数据库查询用户ID失败, ExecuteQuery结果为空" << std::endl;
         dbManager->ReleaseConnection(conn);
         return false;
     }
     MYSQL_ROW row = mysql_fetch_row(result);
     if(!row){
+        std::cerr << "[UserDAO::GetUserIdByUsername]根据用户名从数据库查询用户ID失败, ExecuteQuery结果首行为空" << std::endl;
         mysql_free_result(result);
         dbManager->ReleaseConnection(conn);
         return false;
@@ -324,12 +325,16 @@ bool UserDAO::GetFriendsOfUser(int userId, std::vector<std::pair<std::string, bo
         << "AND u.user_id != " << userId;
     MYSQL_RES* result = dbManager->ExecuteQuery(conn, sql.str());
     if(!result){
+        std::cerr << "[UserDAO::GetFriendsOfUser]从数据库查询用户的所有好友（用户名和在线状态）失败, ExecuteQuery结果为空" << std::endl;
         dbManager->ReleaseConnection(conn);
-        std::cerr << "[UserDAO::GetFriendsOfUser]从数据库查询用户的所有好友（用户名和在线状态）失败" << std::endl;
         return false;
     }
     MYSQL_ROW row;
     while((row = mysql_fetch_row(result))){
+        if(!row){
+            std::cerr << "[UserDAO::GetFriendsOfUser]从数据库查询用户的所有好友（用户名和在线状态）失败, ExecuteQuery结果首行为空" << std::endl;
+            continue;
+        }
         std::string friendUsername = row[0] ? row[0] : "";
         bool isOnline = (row[1] && std::stoi(row[1]) == 1);
         friends.push_back({friendUsername, isOnline});

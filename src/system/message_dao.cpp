@@ -34,7 +34,7 @@ bool MessageDAO::InsertMessage(int senderId, int receiverId, const std::string& 
         << senderId << ", " << receiverId << ", '" << content << "')";
     bool result = dbManager->ExecuteUpdate(conn, sql.str());
     if(!result){
-        std::cerr << "[MessageDAO::InsertMessage]向数据库插入一条新消息失败" << std::endl;
+        std::cerr << "[MessageDAO::InsertMessage]向数据库插入一条新消息失败, ExecuteUpdate结果失败" << std::endl;
         dbManager->ReleaseConnection(conn);
         return false;
     }
@@ -65,12 +65,16 @@ bool MessageDAO::GetUnreadMessages(int userId, std::vector<Message>& messages){
         << "ORDER BY m.send_time ASC";
     MYSQL_RES* result = dbManager->ExecuteQuery(conn, sql.str());
     if(!result){
-        std::cerr << "[MessageDAO::GetUnreadMessages]从数据库查询用户的所有未读消息失败" << std::endl;
+        std::cerr << "[MessageDAO::GetUnreadMessages]从数据库查询用户的所有未读消息失败, ExecuteQuery结果为空" << std::endl;
         dbManager->ReleaseConnection(conn);
         return false;
     }
     MYSQL_ROW row;
     while((row = mysql_fetch_row(result))){
+        if(!row){
+            std::cerr << "[MessageDAO::GetUnreadMessages]从数据库查询用户的所有未读消息失败, ExecuteQuery结果首行为空" << std::endl;
+            continue;
+        }
         Message msg;
         msg.messageId = std::stoi(row[0]);
         msg.senderId = std::stoi(row[1]);
@@ -105,7 +109,7 @@ bool MessageDAO::MarkMessagesAsRead(int senderId, int receiverId){
         << " AND receiver_id = " << receiverId << " AND is_read = 0";
     bool result = dbManager->ExecuteUpdate(conn, sql.str());
     if(!result){
-        std::cerr << "[MessageDAO::MarkMessagesAsRead]向数据库标记用户之间的未读消息为已读失败" << std::endl;
+        std::cerr << "[MessageDAO::MarkMessagesAsRead]向数据库标记用户之间的未读消息为已读失败, ExecuteUpdate结果失败" << std::endl;
         dbManager->ReleaseConnection(conn);
         return false;
     }
@@ -140,12 +144,16 @@ bool MessageDAO::GetHistoryMessages(int userId1, int userId2, int count, std::ve
         << "LIMIT " << count;
     MYSQL_RES* result = dbManager->ExecuteQuery(conn, sql.str());
     if(!result){
-        std::cerr << "[MessageDAO::GetHistoryMessages]从数据库查询两个用户之间的历史消息（按时间升序，限制条数）失败" << std::endl;
+        std::cerr << "[MessageDAO::GetHistoryMessages]从数据库查询两个用户之间的历史消息（按时间升序，限制条数）失败, ExecuteQuery结果为空" << std::endl;
         dbManager->ReleaseConnection(conn);
         return false;
     }
     MYSQL_ROW row;
     while((row = mysql_fetch_row(result))){
+        if(!row){
+            std::cerr << "[MessageDAO::GetHistoryMessages]从数据库查询两个用户之间的历史消息（按时间升序，限制条数）失败, ExecuteQuery结果首行为空" << std::endl;
+            continue;
+        }
         Message msg;
         msg.messageId = std::stoi(row[0]);
         msg.senderId = std::stoi(row[1]);
