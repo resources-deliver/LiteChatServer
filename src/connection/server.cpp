@@ -27,6 +27,9 @@ Server::Server()
     , userManager(nullptr)
     , friendManager(nullptr)
     , messageManager(nullptr)
+    , logger(nullptr)
+    , monitor(nullptr)
+    , exceptionHandler(nullptr)
     , heartbeatThread(nullptr)
     , running(false)
 {
@@ -55,6 +58,12 @@ Server::~Server(){
     if(heartbeatThread){
         delete heartbeatThread;
     }
+    if(monitor){
+        delete monitor;
+    }
+    if(exceptionHandler){
+        delete exceptionHandler;
+    }
 }
 
 /**
@@ -63,6 +72,14 @@ Server::~Server(){
  */
 void Server::SetDBManager(DBManager* dbMgr){
     dbManager = dbMgr;
+}
+
+/**
+ * @brief 初始化日志记录器
+ * @param log 日志记录器指针
+ */
+void Server::SetLogger(ServerLogger* log){
+    logger = log;
 }
 
 /**
@@ -129,6 +146,12 @@ bool Server::Start(){
     std::cout << "[Server::Start]服务器启动成功，监听端口" << serverPort << std::endl;
     running = true;
     StartHeartbeatCheck();
+    exceptionHandler = new ExceptionHandler(logger, dbManager);
+    monitor = new ServerMonitor(logger, dbManager, sessionManager, threadPool, &currentConnections);
+    monitor->StartMonitor();
+    if(logger){
+        logger->WriteLog(LogLevel::INFO, "Server", "服务器启动成功，监听端口" + std::to_string(serverPort));
+    }
     return true;
 }
 
@@ -137,6 +160,9 @@ bool Server::Start(){
  */
 void Server::Stop(){
     running = false;  // 设置服务器为非运行状态
+    if(monitor){  // 如果有监控在运行
+        monitor->StopMonitor();  // 则停止监控
+    }
     if(heartbeatThread && heartbeatThread->joinable()){  // 如果线程还在运行
         heartbeatThread->join();  // 则等待线程结束
     }
@@ -201,28 +227,46 @@ void Server::AcceptConnections(){
  * @param clientSocket 客户端socket文件描述符
  */
 void Server::HandleClient(int clientSocket){
-    while(running){  // 如果服务器处于运行状态
-        std::string data = ReceiveData(clientSocket);  // 接收客户端数据
-        if(data.empty()){  // 如果收到空数据
-            std::cout << "[Server::HandleClient]收到空数据" << std::endl;
-            break;
-        }
-        DispatchRequest(clientSocket, data);  // 分发客户端的请求到各个业务模块
-    }
-    ClientSession* session = sessionManager->GetSession(clientSocket);  // 获取客户端会话
-    if(session){  // 如果会话存在
-        if(!session->GetUsername().empty()){  // 如果有用户名
-            userManager->UpdateUserOnlineStatus(session->GetUsername(), false);  // 更新用户在线状态
-            userManager->NotifyFriendsStatusChange(session->GetUsername(), UserStatus::Offline);  // 通知好友状态改变
-            if(friendManager){
-                friendManager->RemoveFriendCache(session->GetUsername());  // 移除好友列表缓存
+    try{
+        while(running){  // 如果服务器处于运行状态
+            std::string data = ReceiveData(clientSocket);  // 接收客户端数据
+            if(data.empty()){  // 如果收到空数据
+                std::cout << "[Server::HandleClient]收到空数据" << std::endl;
+                break;
             }
+            DispatchRequest(clientSocket, data);  // 分发客户端的请求到各个业务模块
         }
-        sessionManager->RemoveSession(clientSocket);  // 移除会话
-        currentConnections--;  // 减少当前连接数
+        ClientSession* session = sessionManager->GetSession(clientSocket);  // 获取客户端会话
+        if(session){  // 如果会话存在
+            if(!session->GetUsername().empty()){  // 如果有用户名
+                userManager->UpdateUserOnlineStatus(session->GetUsername(), false);  // 更新用户在线状态
+                userManager->NotifyFriendsStatusChange(session->GetUsername(), UserStatus::Offline);  // 通知好友状态改变
+                if(friendManager){
+                    friendManager->RemoveFriendCache(session->GetUsername());  // 移除好友列表缓存
+                }
+            }
+            sessionManager->RemoveSession(clientSocket);  // 移除会话
+            currentConnections--;  // 减少当前连接数
+        }
+        std::cout << "[Server::HandleClient]客户端断开连接" << std::endl;
+        close(clientSocket);  // 关闭客户端socket
     }
-    std::cout << "[Server::HandleClient]客户端断开连接" << std::endl;
-    close(clientSocket);  // 关闭客户端socket
+    catch(const std::exception& e){
+        if(exceptionHandler){
+            exceptionHandler->HandleClientException(clientSocket, e);
+        }
+        else{
+            close(clientSocket);
+        }
+        ClientSession* session = sessionManager->GetSession(clientSocket);
+        if(session && sessionManager){
+            if(!session->GetUsername().empty() && userManager){
+                userManager->UpdateUserOnlineStatus(session->GetUsername(), false);
+            }
+            sessionManager->RemoveSession(clientSocket);
+            currentConnections--;
+        }
+    }
 }
 
 /**
@@ -514,98 +558,107 @@ void Server::DispatchRequest(int clientSocket, const std::string& data){
         }
     }
     Response response;
-    if(!userManager){
-        response.code = 5001;
+    try{
+        if(!userManager){
+            response.code = 5001;
+            response.msg = "服务器内部错误";
+        }
+        else if(type == "REGISTER"){
+            response = userManager->HandleRegister(request);
+        }
+        else if(type == "LOGIN"){
+            response = userManager->HandleLogin(request);
+            if(response.code == 0 && friendManager){
+                friendManager->CacheFriendList(request.username);
+            }
+            if(response.code == 0 && messageManager){
+                messageManager->PushOfflineMessages(request.username);
+            }
+        }
+        else if(type == "UPDATE_USER"){
+            response = userManager->HandleUpdateUser(request);
+        }
+        else if(type == "QUERY_STATUS"){
+            response = userManager->HandleQueryStatus(request);
+        }
+        else if(type == "ADD_FRIEND"){
+            if(friendManager){
+                response = friendManager->HandleAddFriend(request);
+            }
+            else{
+                response.code = 5001;
+                response.msg = "服务器内部错误";
+            }
+        }
+        else if(type == "DEL_FRIEND"){
+            if(friendManager){
+                response = friendManager->HandleDeleteFriend(request);
+            }
+            else{
+                response.code = 5001;
+                response.msg = "服务器内部错误";
+            }
+        }
+        else if(type == "FRIEND_LIST"){
+            if(friendManager){
+                response = friendManager->HandleFriendList(request);
+            }
+            else{
+                response.code = 5001;
+                response.msg = "服务器内部错误";
+            }
+        }
+        else if(type == "FRIEND_STATUS"){
+            if(friendManager){
+                response = friendManager->HandleFriendStatus(request);
+            }
+            else{
+                response.code = 5001;
+                response.msg = "服务器内部错误";
+            }
+        }
+        else if(type == "QUERY_FRIEND"){
+            if(friendManager){
+                response = friendManager->HandleQueryFriend(request);
+            }
+            else{
+                response.code = 5001;
+                response.msg = "服务器内部错误";
+            }
+        }
+        else if(type == "SEND_MSG"){
+            if(messageManager){
+                response = messageManager->HandleSendMessage(request);
+            }
+            else{
+                response.code = 5001;
+                response.msg = "服务器内部错误";
+            }
+        }
+        else if(type == "HISTORY_MSG"){
+            if(messageManager){
+                response = messageManager->HandleHistoryMessages(request);
+            }
+            else{
+                response.code = 5001;
+                response.msg = "服务器内部错误";
+            }
+        }
+        else if(type == "HEARTBEAT"){
+            response.code = 0;
+            response.msg = "心跳正常";
+        }
+        else{
+            response.code = 4002;
+            response.msg = "未知的请求类型";
+        }
+    }
+    catch(const std::exception& e){
+        if(exceptionHandler){
+            exceptionHandler->HandleDBException(e);
+        }
+        response.code = 5000;
         response.msg = "服务器内部错误";
-    }
-    else if(type == "REGISTER"){
-        response = userManager->HandleRegister(request);
-    }
-    else if(type == "LOGIN"){
-        response = userManager->HandleLogin(request);
-        if(response.code == 0 && friendManager){
-            friendManager->CacheFriendList(request.username);
-        }
-        if(response.code == 0 && messageManager){
-            messageManager->PushOfflineMessages(request.username);
-        }
-    }
-    else if(type == "UPDATE_USER"){
-        response = userManager->HandleUpdateUser(request);
-    }
-    else if(type == "QUERY_STATUS"){
-        response = userManager->HandleQueryStatus(request);
-    }
-    else if(type == "ADD_FRIEND"){
-        if(friendManager){
-            response = friendManager->HandleAddFriend(request);
-        }
-        else{
-            response.code = 5001;
-            response.msg = "服务器内部错误";
-        }
-    }
-    else if(type == "DEL_FRIEND"){
-        if(friendManager){
-            response = friendManager->HandleDeleteFriend(request);
-        }
-        else{
-            response.code = 5001;
-            response.msg = "服务器内部错误";
-        }
-    }
-    else if(type == "FRIEND_LIST"){
-        if(friendManager){
-            response = friendManager->HandleFriendList(request);
-        }
-        else{
-            response.code = 5001;
-            response.msg = "服务器内部错误";
-        }
-    }
-    else if(type == "FRIEND_STATUS"){
-        if(friendManager){
-            response = friendManager->HandleFriendStatus(request);
-        }
-        else{
-            response.code = 5001;
-            response.msg = "服务器内部错误";
-        }
-    }
-    else if(type == "QUERY_FRIEND"){
-        if(friendManager){
-            response = friendManager->HandleQueryFriend(request);
-        }
-        else{
-            response.code = 5001;
-            response.msg = "服务器内部错误";
-        }
-    }
-    else if(type == "SEND_MSG"){
-        if(messageManager){
-            response = messageManager->HandleSendMessage(request);
-        }
-        else{
-            response.code = 5001;
-            response.msg = "服务器内部错误";
-        }
-    }
-    else if(type == "HISTORY_MSG"){
-        if(messageManager){
-            response = messageManager->HandleHistoryMessages(request);
-        }
-        else{
-            response.code = 5001;
-            response.msg = "服务器内部错误";
-        }
-    }
-    else if(type == "HEARTBEAT"){
-        response.code = 0;
-        response.msg = "心跳正常";
-    }
-    else{
-        response.code = 4002;
-        response.msg = "未知的请求类型";
     }
     Json::Value jsonResponse;
     jsonResponse["type"] = type + "_RESPONSE";

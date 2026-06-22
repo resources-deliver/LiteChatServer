@@ -92,6 +92,15 @@ std::unordered_map<int, ClientSession*> SessionManager::GetAllSessions(){
 }
 
 /**
+ * @brief 获取在线用户数量（已绑定用户名的会话数）
+ * @return 在线用户数量
+ */
+int SessionManager::GetOnlineUserCount(){
+    std::lock_guard<std::mutex> lock(sessionMutex);
+    return static_cast<int>(usernameToSocket.size());
+}
+
+/**
  * @brief 获取会话互斥锁
  * @return 返回互斥锁引用
  */

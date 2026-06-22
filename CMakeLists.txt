@@ -34,6 +34,9 @@ set(SOURCES
     src/system/user_manager.cpp
     src/system/friend_manager.cpp
     src/system/message_manager.cpp
+    src/system/server_logger.cpp
+    src/system/server_monitor.cpp
+    src/system/exception_handler.cpp
     src/connection/server.cpp
     src/connection/client_session.cpp
 )

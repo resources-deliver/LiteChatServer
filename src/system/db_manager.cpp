@@ -154,6 +154,36 @@ bool DBManager::ExecuteUpdate(MYSQL* conn, const std::string& sql){
 }
 
 /**
+ * @brief 创建预编译语句
+ * @param conn MySQL连接指针
+ * @param sql SQL语句模板（含?占位符）
+ * @return 预编译语句句柄，失败返回nullptr
+ */
+MYSQL_STMT* DBManager::PrepareStatement(MYSQL* conn, const std::string& sql){
+    MYSQL_STMT* stmt = mysql_stmt_init(conn);
+    if(!stmt){
+        std::cerr << "[DBManager::PrepareStatement]mysql_stmt_init失败: " << mysql_error(conn) << std::endl;
+        return nullptr;
+    }
+    if(mysql_stmt_prepare(stmt, sql.c_str(), static_cast<unsigned long>(sql.length())) != 0){
+        std::cerr << "[DBManager::PrepareStatement]mysql_stmt_prepare失败: " << mysql_stmt_error(stmt) << std::endl;
+        mysql_stmt_close(stmt);
+        return nullptr;
+    }
+    return stmt;
+}
+
+/**
+ * @brief 关闭预编译语句
+ * @param stmt 预编译语句句柄
+ */
+void DBManager::CloseStatement(MYSQL_STMT* stmt){
+    if(stmt){
+        mysql_stmt_close(stmt);
+    }
+}
+
+/**
  * @brief 创建单个数据库连接
  * @return 返回MySQL连接指针，失败返回nullptr
  */

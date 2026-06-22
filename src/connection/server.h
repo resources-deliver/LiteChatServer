@@ -13,6 +13,9 @@
 #include "user_manager.h"
 #include "friend_manager.h"
 #include "message_manager.h"
+#include "server_logger.h"
+#include "server_monitor.h"
+#include "exception_handler.h"
 
 /**
  * @brief 服务器类，负责管理客户端连接和消息收发
@@ -22,6 +25,7 @@ public:
     Server();
     ~Server();
     void SetDBManager(DBManager* dbMgr);
+    void SetLogger(ServerLogger* log);
     bool Start();
     void Stop();
     void AcceptConnections();
@@ -53,6 +57,9 @@ private:
     UserManager* userManager;  // 用户管理指针
     FriendManager* friendManager;  // 好友管理指针
     MessageManager* messageManager;  // 消息管理指针
+    ServerLogger* logger;  // 日志记录器指针
+    ServerMonitor* monitor;  // 服务器监控指针
+    ExceptionHandler* exceptionHandler;  // 异常处理指针
     std::thread* heartbeatThread;  // 心跳检查线程指针
     std::unordered_map<int, ClientSession*> sessionMap;  // 会话映射表，键为客户端套接字描述符，值为会话指针
     std::mutex sessionMutex;  // 会话映射表互斥锁

@@ -19,6 +19,7 @@ public:
     ClientSession* GetSessionByUsername(const std::string& username);
     void BindUsername(int socket, const std::string& username);
     std::unordered_map<int, ClientSession*> GetAllSessions();
+    int GetOnlineUserCount();
     std::mutex& GetMutex();
 
 private:

@@ -21,6 +21,8 @@ public:
     bool Reconnect();
     MYSQL_RES* ExecuteQuery(MYSQL* conn, const std::string& sql);
     bool ExecuteUpdate(MYSQL* conn, const std::string& sql);
+    MYSQL_STMT* PrepareStatement(MYSQL* conn, const std::string& sql);
+    void CloseStatement(MYSQL_STMT* stmt);
 
 private:
     MYSQL* CreateConnection();
