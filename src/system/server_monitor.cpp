@@ -2,22 +2,25 @@
 #include "session_manager.h"
 #include "db_manager.h"
 #include "thread_pool.h"
+#include "server_logger.h"
 #include <sstream>
 #include <chrono>
 #include <jsoncpp/json/json.h>
 
 /**
  * @brief ServerMonitor构造函数，初始化类内私有属性
+ * @param dbManager 数据库管理器指针
+ * @param sessionManager 会话管理器指针
+ * @param threadPool 线程池指针
+ * @param currentConnections 当前连接数原子变量指针
  */
 ServerMonitor::ServerMonitor(
-    ServerLogger* logger, 
-    DBManager* dbManager, 
-    SessionManager* sessionManager, 
-    ThreadPool* threadPool, 
+    DBManager* dbManager,
+    SessionManager* sessionManager,
+    ThreadPool* threadPool,
     std::atomic<int>* currentConnections
 )
-    : logger(logger)
-    , dbManager(dbManager)
+    : dbManager(dbManager)
     , sessionManager(sessionManager)
     , threadPool(threadPool)
     , currentConnections(currentConnections)
@@ -115,7 +118,5 @@ void ServerMonitor::CollectStatus(){
  * @param data 监控数据JSON字符串
  */
 void ServerMonitor::RecordMonitorData(const std::string& data){
-    if(logger){
-        logger->WriteLog(LogLevel::INFO, "Monitor", data);
-    }
+    ServerLogger::GetInstance().WriteLog(LogLevel::INFO, "Monitor", data);
 }

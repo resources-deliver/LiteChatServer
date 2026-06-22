@@ -25,27 +25,25 @@ void SignalHandler(int signal){
 int main(){
     signal(SIGINT, SignalHandler);
     signal(SIGTERM, SignalHandler);
-    ServerLogger logger;
-    logger.InitLogger("./logs/");
-    logger.WriteLog(LogLevel::INFO, "main", "服务器启动中...");
+    ServerLogger::GetInstance().InitLogger("./logs/");
+    ServerLogger::GetInstance().WriteLog(LogLevel::INFO, "main", "服务器启动中...");
     DBManager dbManager;
     if(!dbManager.InitConnectionPool(10)){
-        logger.WriteLog(LogLevel::ERROR, "main", "数据库连接池初始化失败，服务器拒绝启动");
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "main", "数据库连接池初始化失败，服务器拒绝启动");
         std::cerr << "[main]数据库连接池初始化失败，服务器拒绝启动" << std::endl;
         return 1;
     }
     Server server;
     server.SetDBManager(&dbManager);
-    server.SetLogger(&logger);
     g_server = &server;
     if(!server.Start()){
-        logger.WriteLog(LogLevel::ERROR, "main", "服务器启动失败");
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "main", "服务器启动失败");
         std::cerr << "[main]服务器启动失败" << std::endl;
         return 1;
     }
     std::thread acceptThread(&Server::AcceptConnections, &server);
     acceptThread.join();
-    logger.WriteLog(LogLevel::INFO, "main", "服务器已关闭");
+    ServerLogger::GetInstance().WriteLog(LogLevel::INFO, "main", "服务器已关闭");
     std::cout << "[main]服务器已关闭" << std::endl;
     return 0;
 }

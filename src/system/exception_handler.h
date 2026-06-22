@@ -3,7 +3,6 @@
 
 #include <string>
 #include <exception>
-#include "server_logger.h"
 
 class DBManager;
 
@@ -12,7 +11,7 @@ class DBManager;
  */
 class ExceptionHandler{
 public:
-    ExceptionHandler(ServerLogger* logger, DBManager* dbManager);
+    ExceptionHandler(DBManager* dbManager);
     ~ExceptionHandler();
     void HandleException(const std::exception& e, const std::string& context);
     void HandleClientException(int clientSocket, const std::exception& e);
@@ -20,7 +19,6 @@ public:
     void HandleNetworkException(const std::exception& e);
 
 private:
-    ServerLogger* logger;  // 日志记录器指针
     DBManager* dbManager;  // 数据库管理器指针
 };
 

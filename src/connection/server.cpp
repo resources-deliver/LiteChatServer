@@ -11,6 +11,7 @@
 #include <thread>
 #include <chrono>
 #include <jsoncpp/json/json.h>
+#include "server_logger.h"
 
 /**
  * @brief Server构造函数，初始化类内私有属性
@@ -27,7 +28,6 @@ Server::Server()
     , userManager(nullptr)
     , friendManager(nullptr)
     , messageManager(nullptr)
-    , logger(nullptr)
     , monitor(nullptr)
     , exceptionHandler(nullptr)
     , heartbeatThread(nullptr)
@@ -72,14 +72,6 @@ Server::~Server(){
  */
 void Server::SetDBManager(DBManager* dbMgr){
     dbManager = dbMgr;
-}
-
-/**
- * @brief 初始化日志记录器
- * @param log 日志记录器指针
- */
-void Server::SetLogger(ServerLogger* log){
-    logger = log;
 }
 
 /**
@@ -146,12 +138,10 @@ bool Server::Start(){
     std::cout << "[Server::Start]服务器启动成功，监听端口" << serverPort << std::endl;
     running = true;
     StartHeartbeatCheck();
-    exceptionHandler = new ExceptionHandler(logger, dbManager);
-    monitor = new ServerMonitor(logger, dbManager, sessionManager, threadPool, &currentConnections);
+    exceptionHandler = new ExceptionHandler(dbManager);
+    monitor = new ServerMonitor(dbManager, sessionManager, threadPool, &currentConnections);
     monitor->StartMonitor();
-    if(logger){
-        logger->WriteLog(LogLevel::INFO, "Server", "服务器启动成功，监听端口" + std::to_string(serverPort));
-    }
+    ServerLogger::GetInstance().WriteLog(LogLevel::INFO, "Server", "服务器启动成功，监听端口" + std::to_string(serverPort));
     return true;
 }
 

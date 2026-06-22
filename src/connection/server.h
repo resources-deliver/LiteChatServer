@@ -13,7 +13,6 @@
 #include "user_manager.h"
 #include "friend_manager.h"
 #include "message_manager.h"
-#include "server_logger.h"
 #include "server_monitor.h"
 #include "exception_handler.h"
 
@@ -25,7 +24,6 @@ public:
     Server();
     ~Server();
     void SetDBManager(DBManager* dbMgr);
-    void SetLogger(ServerLogger* log);
     bool Start();
     void Stop();
     void AcceptConnections();
@@ -57,7 +55,6 @@ private:
     UserManager* userManager;  // 用户管理指针
     FriendManager* friendManager;  // 好友管理指针
     MessageManager* messageManager;  // 消息管理指针
-    ServerLogger* logger;  // 日志记录器指针
     ServerMonitor* monitor;  // 服务器监控指针
     ExceptionHandler* exceptionHandler;  // 异常处理指针
     std::thread* heartbeatThread;  // 心跳检查线程指针

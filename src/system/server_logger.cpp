@@ -7,6 +7,15 @@
 #include <unistd.h>
 
 /**
+ * @brief 获取ServerLogger单例实例（C++11线程安全）
+ * @return ServerLogger单例引用
+ */
+ServerLogger& ServerLogger::GetInstance(){
+    static ServerLogger instance;
+    return instance;
+}
+
+/**
  * @brief 构造函数，初始化日志记录器
  */
 ServerLogger::ServerLogger()

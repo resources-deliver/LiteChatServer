@@ -11,18 +11,23 @@
 enum class LogLevel {DEBUG, INFO, WARNING, ERROR};
 
 /**
- * @brief 服务器日志记录器类，负责多线程安全的日志写入、轮转和清理
+ * @brief 服务器日志记录器类（单例模式），负责多线程安全的日志写入、轮转和清理
  */
 class ServerLogger{
 public:
-    ServerLogger();
-    ~ServerLogger();
+    static ServerLogger& GetInstance();
     void InitLogger(const std::string& logDir);
     void WriteLog(LogLevel level, const std::string& module, const std::string& message, const std::string& clientIP = "");
     void RotateLogFile();
     void CleanExpiredLogs(int retentionDays = 90);
     std::string GetTimestamp();
     std::string FilterSensitiveInfo(const std::string& message);
+
+private:
+    ServerLogger();
+    ~ServerLogger();
+    ServerLogger(const ServerLogger&) = delete;
+    ServerLogger& operator=(const ServerLogger&) = delete;
 
 private:
     std::string logFilePath;  // 日志文件路径

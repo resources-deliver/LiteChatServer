@@ -4,7 +4,6 @@
 #include <thread>
 #include <atomic>
 #include <string>
-#include "server_logger.h"
 
 class DBManager;
 class SessionManager;
@@ -15,7 +14,7 @@ class ThreadPool;
  */
 class ServerMonitor{
 public:
-    ServerMonitor(ServerLogger* logger, DBManager* dbManager, SessionManager* sessionManager, ThreadPool* threadPool, std::atomic<int>* currentConnections);
+    ServerMonitor(DBManager* dbManager, SessionManager* sessionManager, ThreadPool* threadPool, std::atomic<int>* currentConnections);
     ~ServerMonitor();
     void StartMonitor();
     void StopMonitor();
@@ -26,7 +25,6 @@ private:
     void MonitorThreadFunc();
 
 private:
-    ServerLogger* logger;
     DBManager* dbManager;
     SessionManager* sessionManager;
     ThreadPool* threadPool;
