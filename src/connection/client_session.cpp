@@ -32,9 +32,7 @@ ClientSession::ClientSession(int socket, const std::string& ip, int port)
 /**
  * @brief ClientSession析构函数
  */
-ClientSession::~ClientSession()
-{
-}
+ClientSession::~ClientSession(){}
 
 /**
  * @brief 获取客户端套接字描述符

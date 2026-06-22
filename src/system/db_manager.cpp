@@ -1,14 +1,19 @@
 #include "db_manager.h"
+#include "server_logger.h"
 #include <iostream>
 #include <thread>
 #include <chrono>
+#include <cppconn/statement.h>
+#include <cppconn/resultset.h>
+#include <cppconn/exception.h>
 
 /**
  * @brief DBManager构造函数，初始化类内私有成员属性
  */
 DBManager::DBManager()
-    : poolSize(0)
-    , dbHost("127.0.0.1")
+    : driver(nullptr)
+    , poolSize(0)
+    , dbHost("tcp://127.0.0.1:3306")
     , dbPort(3306)
     , dbName("LiteChat_db")
     , dbUser("LiteChat_user")
@@ -17,69 +22,84 @@ DBManager::DBManager()
 }
 
 /**
- * @brief DBManager析构函数，释放连接池中所有MYSQL连接资源
+ * @brief DBManager析构函数，释放连接池中所有连接资源
  */
 DBManager::~DBManager(){
-    std::lock_guard<std::mutex> lock(poolMutex);  // 加锁使得共享资源同一时间只有一个线程访问
-    int shutDownCount = 0;  // 记录关闭连接的次数
-    while(!connectionPool.empty()){  // 若MYSQL连接池不为空
-        MYSQL* conn = connectionPool.front();  // 获取连接池队头连接
-        connectionPool.pop();  // 从连接池队列中移除队头连接
-        DestroyConnection(conn);  // 关闭获取的连接
-        shutDownCount++;  // 关闭的连接次数加一
-        if(shutDownCount == poolSize){  // 如果关闭连接次数等于连接池大小
-            std::cout << "[DBManager::~DBManager]数据库连接已关闭" << shutDownCount << "个连接" << std::endl;
+    std::lock_guard<std::mutex> lock(poolMutex);  // 加锁保护共享资源
+    int shutDownCount = 0;  // 统计关闭的连接数量
+    while(!connectionPool.empty()){
+        sql::Connection* conn = connectionPool.front();  // 获取连接池首个连接
+        connectionPool.pop();  // 从连接池中移除首个连接
+        DestroyConnection(conn);
+        shutDownCount++;
+        if(shutDownCount == poolSize){
+            ServerLogger::GetInstance().WriteLog(
+                LogLevel::INFO, "DBManager", "数据库连接已关闭" + std::to_string(shutDownCount) + "个连接"
+            );
         }
     }
 }
 
 /**
- * @brief 初始化MYSQL连接池
+ * @brief 初始化连接池
  * @param size 连接池大小，默认10
  * @return 初始化成功返回true，失败返回false
  */
 bool DBManager::InitConnectionPool(int size){
-    poolSize = size;  // 初始化连接池大小
-    int createCount = 0;  // 记录创建连接的次数
-    for(int i = 0; i < size; ++i){  // 创建指定数量的MYSQL连接
-        MYSQL* conn = CreateConnection();  // 创建MYSQL连接
-        if(!conn){  // 如果创建连接失败
-            std::cerr << "[DBManager::InitConnectionPool]创建MYSQL连接" << i + 1 << "失败" << std::endl;
+    poolSize = size;
+    try{
+        driver = sql::mysql::get_mysql_driver_instance();  // 获取MySQL驱动实例
+    }
+    catch(sql::SQLException& e){
+        ServerLogger::GetInstance().WriteLog(
+            LogLevel::ERROR, "DBManager", "获取MySQL驱动实例失败:" + std::string(e.what())
+        );
+        return false;
+    }
+    int createCount = 0;  // 统计创建的连接数量
+    for(int i = 0; i < size; ++i){
+        sql::Connection* conn = CreateConnection();
+        if(!conn){
+            ServerLogger::GetInstance().WriteLog(
+                LogLevel::ERROR, "DBManager", "创建连接" + std::to_string(i + 1) + "失败"
+            );
             return false;
         }
-        createCount++;  // 创建的连接次数加一
-        connectionPool.push(conn);  // 将创建的连接添加到连接池队列中
+        createCount++;
+        connectionPool.push(conn);  // 将新创建的连接添加到连接池队列中
     }
-    if(createCount == poolSize){  // 如果创建的连接次数等于连接池大小
-        std::cout << "[DBManager::InitConnectionPool]数据库连接池已创建" << createCount << "个连接" << std::endl;
+    if(createCount == poolSize){
+        ServerLogger::GetInstance().WriteLog(
+            LogLevel::INFO, "DBManager", "数据库连接池已创建" + std::to_string(createCount) + "个连接"
+        );
     }
-    return ValidateConnection();  // 验证连接池中的连接是否可用
+    return ValidateConnection();
 }
 
 /**
  * @brief 从连接池获取可用连接
- * @return 返回MySQL连接指针，如果连接池耗尽则等待
+ * @return 返回连接指针，如果连接池耗尽则等待
  */
-MYSQL* DBManager::GetConnection(){
-    std::unique_lock<std::mutex> lock(poolMutex);  // 加锁使得共享资源同一时间只有一个线程访问
-    poolCondition.wait(lock, [this] { return !connectionPool.empty(); });  // 使用条件变量等待连接池有可用连接
-    if(connectionPool.empty()){  // 如果连接池为空
-        std::cerr << "[DBManager::GetConnection]连接池为空，无法获取连接" << std::endl;
+sql::Connection* DBManager::GetConnection(){
+    std::unique_lock<std::mutex> lock(poolMutex);
+    poolCondition.wait(lock, [this] { return !connectionPool.empty(); });  // 用条件变量等待连接池非空
+    if(connectionPool.empty()){
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "DBManager", "连接池为空，无法获取连接");
         return nullptr;
     }
-    MYSQL* conn = connectionPool.front();  // 获取连接池队头连接
-    connectionPool.pop();  // 从连接池队列中移除队头连接
+    sql::Connection* conn = connectionPool.front();
+    connectionPool.pop();
     return conn;
 }
 
 /**
  * @brief 将连接重新添加到连接池队列中
- * @param conn 要释放的MySQL连接指针
+ * @param conn 要释放的连接指针
  */
-void DBManager::ReleaseConnection(MYSQL* conn){
-    std::lock_guard<std::mutex> lock(poolMutex);  // 加锁使得共享资源同一时间只有一个线程访问
-    connectionPool.push(conn);  // 将连接重新添加到连接池队列中
-    poolCondition.notify_one();  // 使用条件变量通知1个线程：等待连接池有可用连接的线程
+void DBManager::ReleaseConnection(sql::Connection* conn){
+    std::lock_guard<std::mutex> lock(poolMutex);
+    connectionPool.push(conn);
+    poolCondition.notify_one();  // 通知等待连接的线程
 }
 
 /**
@@ -87,139 +107,78 @@ void DBManager::ReleaseConnection(MYSQL* conn){
  * @return 连接可用返回true，失败返回false
  */
 bool DBManager::ValidateConnection(){
-    MYSQL* conn = GetConnection();  // 从连接池获取可用连接
-    if(!conn){  // 如果获取连接失败
-        std::cerr << "[DBManager::ValidateConnection]获取数据库连接失败" << std::endl;
+    sql::Connection* conn = GetConnection();
+    if(!conn){
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "DBManager", "获取数据库连接失败");
         return false;
     }
-    bool valid = (mysql_query(conn, "SELECT 1") == 0);  // 执行查询"SELECT 1"语句
-    if(valid){  // 如果查询成功
-        MYSQL_RES* result = mysql_store_result(conn);  // 存储查询结果
-        if(result){  // 如果存储查询结果成功
-            mysql_free_result(result);  // 释放查询结果内存
+    bool valid = false;
+    try{
+        sql::Statement* stmt = conn->createStatement();  // 创建SQL语句对象
+        sql::ResultSet* res = stmt->executeQuery("SELECT 1");  // 执行查询语句
+        if(res->next()){  // 如果查询结果集有下一行数据
+            valid = true;  // 连接可用
         }
-        else{
-            std::cerr << "[DBManager::ValidateConnection]存储查询结果失败" << std::endl;
-            valid = false;  // 标记查询无效
-        }
+        delete res;
+        delete stmt;
     }
-    ReleaseConnection(conn);  // 将连接重新添加到连接池队列中
+    catch(sql::SQLException& e){
+        ServerLogger::GetInstance().WriteLog(
+            LogLevel::ERROR, "DBManager", "验证连接失败:" + std::string(e.what())
+        );
+        valid = false;
+    }
+    ReleaseConnection(conn);
     return valid;
 }
 
 /**
- * @brief 重连数据库（最多3次，间隔5秒，超时30秒）
+ * @brief 重连数据库（最多3次，间隔5秒）
  * @return 重连成功返回true，失败返回false
  */
 bool DBManager::Reconnect(){
-    for(int i = 0; i < 3; ++i){  // 尝试重连3次
-        std::cout << "[DBManager::Reconnect]尝试重连数据库连接(尝试" << i + 1 << "/3)..." << std::endl;
-        if(InitConnectionPool(poolSize)){  // 如果初始化连接池成功
-            std::cout << "[DBManager::Reconnect]数据库连接重连成功" << std::endl;
+    for(int i = 0; i < 3; ++i){
+        ServerLogger::GetInstance().WriteLog(
+            LogLevel::INFO, "DBManager", "尝试重连数据库连接(尝试" + std::to_string(i + 1) + "/ 3)..."
+        );
+        bool reconnectSuccess = InitConnectionPool(poolSize);
+        if(reconnectSuccess){
+            ServerLogger::GetInstance().WriteLog(LogLevel::INFO, "DBManager", "数据库连接重连成功");
             return true;
         }
-        std::this_thread::sleep_for(std::chrono::seconds(5));  // 间隔5秒
+        std::this_thread::sleep_for(std::chrono::seconds(5));
     }
-    std::cerr << "[DBManager::Reconnect]3次重连失败" << std::endl;
+    ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "DBManager", "3次重连失败");
     return false;
 }
 
 /**
- * @brief 执行查询SQL
- * @param conn MySQL连接指针
- * @param sql SQL查询语句
- * @return 返回查询结果集，失败返回nullptr
- */
-MYSQL_RES* DBManager::ExecuteQuery(MYSQL* conn, const std::string& sql){
-    if(mysql_query(conn, sql.c_str())){  // 如果执行查询SQL语句失败
-        std::cerr << "[DBManager::ExecuteQuery]SQL语句查询失败:" << mysql_error(conn) << std::endl;
-        return nullptr;
-    }
-    MYSQL_RES* result = mysql_store_result(conn);  // 存储查询结果
-    return result;
-}
-
-/**
- * @brief 执行更新SQL
- * @param conn MySQL连接指针
- * @param sql SQL更新语句
- * @return 执行成功返回true，失败返回false
- */
-bool DBManager::ExecuteUpdate(MYSQL* conn, const std::string& sql){
-    if(mysql_query(conn, sql.c_str())){  // 如果执行更新SQL语句失败
-        std::cerr << "[DBManager::ExecuteUpdate]SQL语句更新失败:" << mysql_error(conn) << std::endl;
-        return false;
-    }
-    return true;
-}
-
-/**
- * @brief 创建预编译语句
- * @param conn MySQL连接指针
- * @param sql SQL语句模板（含?占位符）
- * @return 预编译语句句柄，失败返回nullptr
- */
-MYSQL_STMT* DBManager::PrepareStatement(MYSQL* conn, const std::string& sql){
-    MYSQL_STMT* stmt = mysql_stmt_init(conn);
-    if(!stmt){
-        std::cerr << "[DBManager::PrepareStatement]mysql_stmt_init失败: " << mysql_error(conn) << std::endl;
-        return nullptr;
-    }
-    if(mysql_stmt_prepare(stmt, sql.c_str(), static_cast<unsigned long>(sql.length())) != 0){
-        std::cerr << "[DBManager::PrepareStatement]mysql_stmt_prepare失败: " << mysql_stmt_error(stmt) << std::endl;
-        mysql_stmt_close(stmt);
-        return nullptr;
-    }
-    return stmt;
-}
-
-/**
- * @brief 关闭预编译语句
- * @param stmt 预编译语句句柄
- */
-void DBManager::CloseStatement(MYSQL_STMT* stmt){
-    if(stmt){
-        mysql_stmt_close(stmt);
-    }
-}
-
-/**
  * @brief 创建单个数据库连接
- * @return 返回MySQL连接指针，失败返回nullptr
+ * @return 返回连接指针，失败返回nullptr
  */
-MYSQL* DBManager::CreateConnection(){
-    MYSQL* conn = mysql_init(nullptr);  // 初始化MySQL连接
-    if(!conn){  // 如果初始化连接失败
-        std::cerr << "[DBManager::CreateConnection]初始化数据库连接失败" << std::endl;
+sql::Connection* DBManager::CreateConnection(){
+    try{
+        sql::Connection* conn = driver->connect(dbHost, dbUser, dbPassword);  // 创建数据库连接
+        conn->setSchema(dbName);  // 设置数据库名称
+        sql::Statement* stmt = conn->createStatement();
+        stmt->execute("SET NAMES utf8mb4");  // 设置字符集为utf8mb4
+        delete stmt;
+        return conn;
+    }
+    catch(sql::SQLException& e){
+        ServerLogger::GetInstance().WriteLog(
+            LogLevel::ERROR, "DBManager", "创建数据库连接失败:" + std::string(e.what())
+        );
         return nullptr;
     }
-    int timeout = 30;  // 设置连接超时时间为30秒
-    mysql_options(conn, MYSQL_OPT_CONNECT_TIMEOUT, &timeout);  // 设置连接选项
-    MYSQL* tryconn = mysql_real_connect(
-        conn, 
-        dbHost.c_str(), 
-        dbUser.c_str(), 
-        dbPassword.c_str(), 
-        dbName.c_str(), 
-        dbPort, 
-        nullptr, 
-        0
-    );  // 尝试连接数据库
-    if(!tryconn){  // 如果连接数据库失败
-        std::cerr << "[DBManager::CreateConnection]连接数据库失败:" << mysql_error(conn) << std::endl;
-        mysql_close(conn);  // 关闭连接
-        return nullptr;
-    }
-    mysql_set_character_set(conn, "utf8mb4");  // 设置字符集为utf8mb4
-    return conn;
 }
 
 /**
  * @brief 销毁数据库连接
- * @param conn 要销毁的MySQL连接指针
+ * @param conn 要销毁的连接指针
  */
-void DBManager::DestroyConnection(MYSQL* conn){
-    if(conn){  // 如果连接指针不为空
-        mysql_close(conn);  // 关闭连接
+void DBManager::DestroyConnection(sql::Connection* conn){
+    if(conn){
+        delete conn;
     }
 }

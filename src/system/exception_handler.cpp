@@ -15,8 +15,10 @@ ExceptionHandler::ExceptionHandler(DBManager* dbManager)
 {
 }
 
-ExceptionHandler::~ExceptionHandler(){
-}
+/**
+ * @brief 异常处理类析构函数，释放数据库管理器指针
+ */
+ExceptionHandler::~ExceptionHandler(){}
 
 /**
  * @brief 处理通用异常，记录异常信息到日志
@@ -24,8 +26,8 @@ ExceptionHandler::~ExceptionHandler(){
  * @param context 异常发生的上下文描述
  */
 void ExceptionHandler::HandleException(const std::exception& e, const std::string& context){
-    std::ostringstream oss;
-    oss << "Exception in [" << context << "]: " << e.what();
+    std::ostringstream oss;  // 创建字符串流对象
+    oss << "异常内容 [" << context << "]: " << e.what();  // 构建异常信息字符串
     ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "ExceptionHandler", oss.str());
 }
 
@@ -36,7 +38,7 @@ void ExceptionHandler::HandleException(const std::exception& e, const std::strin
  */
 void ExceptionHandler::HandleClientException(int clientSocket, const std::exception& e){
     std::ostringstream oss;
-    oss << "Client socket [" << clientSocket << "] exception: " << e.what() << ", closing connection";
+    oss << "客户端套接字 [" << clientSocket << "] 异常: " << e.what() << ", 关闭连接";
     ServerLogger::GetInstance().WriteLog(LogLevel::WARNING, "ExceptionHandler", oss.str());
     close(clientSocket);
 }
@@ -47,26 +49,30 @@ void ExceptionHandler::HandleClientException(int clientSocket, const std::except
  */
 void ExceptionHandler::HandleDBException(const std::exception& e){
     std::ostringstream oss;
-    oss << "Database exception: " << e.what() << ", attempting reconnection";
+    oss << "数据库异常: " << e.what() << ", 尝试重连";
     ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "ExceptionHandler", oss.str());
     if(!dbManager){
+        ServerLogger::GetInstance().WriteLog(
+            LogLevel::ERROR, "ExceptionHandler", "数据库管理器指针为空，无法尝试重连"
+        );
         return;
     }
     int maxRetries = 3;
     int retryInterval = 5;
     for(int i = 1; i <= maxRetries; i++){
         std::ostringstream oss;
-        oss << "Database reconnection attempt " << i << "/" << maxRetries;
+        oss << "重连尝试 " << i << "/" << maxRetries;
         ServerLogger::GetInstance().WriteLog(LogLevel::INFO, "ExceptionHandler", oss.str());
-        if(dbManager->Reconnect()){
-            ServerLogger::GetInstance().WriteLog(LogLevel::INFO, "ExceptionHandler", "Database reconnection successful");
+        bool reconn = dbManager->Reconnect();
+        if(reconn){
+            ServerLogger::GetInstance().WriteLog(LogLevel::INFO, "ExceptionHandler", "重连成功");
             return;
         }
         if(i < maxRetries){
             std::this_thread::sleep_for(std::chrono::seconds(retryInterval));
         }
     }
-    ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "ExceptionHandler", "Database reconnection failed after maximum retries");
+    ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "ExceptionHandler", "重连失败，最大重试次数已超过");
 }
 
 /**
@@ -75,6 +81,6 @@ void ExceptionHandler::HandleDBException(const std::exception& e){
  */
 void ExceptionHandler::HandleNetworkException(const std::exception& e){
     std::ostringstream oss;
-    oss << "Network exception: " << e.what();
+    oss << "网络异常: " << e.what();
     ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "ExceptionHandler", oss.str());
 }

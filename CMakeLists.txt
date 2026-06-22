@@ -4,9 +4,12 @@ project(LiteChatServer)
 set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# 查找MySQL
+# 查找MySQL C客户端库
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(MYSQL REQUIRED mysqlclient)
+
+# 查找MySQL Connector/C++
+find_library(MYSQLCPPCONN_LIB mysqlcppconn REQUIRED)
 
 # 查找OpenSSL
 find_package(OpenSSL REQUIRED)
@@ -47,6 +50,7 @@ add_executable(litechat_server ${SOURCES})
 # 链接库
 target_link_libraries(litechat_server 
     ${MYSQL_LIBRARIES} 
+    ${MYSQLCPPCONN_LIB}
     pthread
     ${OPENSSL_LIBRARIES}
     ${JSONCPP_LIBRARIES}

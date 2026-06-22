@@ -12,6 +12,7 @@ static Server* g_server = nullptr;
  * @param signal 信号编号
  */
 void SignalHandler(int signal){
+    ServerLogger::GetInstance().WriteLog(LogLevel::INFO, "main", "服务器接收到关闭服务器信号,正在等待线程结束后关闭服务器...");
     std::cout << "[main]接收到关闭服务器信号,正在等待线程结束后关闭服务器..." << std::endl;
     if(g_server){
         g_server->Stop();
@@ -27,6 +28,7 @@ int main(){
     signal(SIGTERM, SignalHandler);
     ServerLogger::GetInstance().InitLogger("./logs/");
     ServerLogger::GetInstance().WriteLog(LogLevel::INFO, "main", "服务器启动中...");
+    std::cout << "[main]服务器启动中..." << std::endl;
     DBManager dbManager;
     if(!dbManager.InitConnectionPool(10)){
         ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "main", "数据库连接池初始化失败，服务器拒绝启动");

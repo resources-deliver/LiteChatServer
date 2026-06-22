@@ -1,4 +1,5 @@
 #include "message_manager.h"
+#include "server_logger.h"
 #include <iostream>
 #include <cctype>
 #include <jsoncpp/json/json.h>
@@ -39,33 +40,33 @@ Response MessageManager::HandleSendMessage(const Request& request){
     if(!ValidateMessageContent(request.content)){
         response.code = 4001;
         response.msg = "消息内容不能为空";
-        std::cout << "[MessageManager::HandleSendMessage]消息内容为空" << std::endl;
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "MessageManager", "发送消息内容为空");
         return response;
     }
     if(request.content.length() > static_cast<size_t>(maxMessageSize)){
         response.code = 4002;
         response.msg = "消息内容过长";
-        std::cout << "[MessageManager::HandleSendMessage]消息内容过长,长度: " << request.content.length() << std::endl;
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "MessageManager", "发送消息内容过长,长度: " + std::to_string(request.content.length()));
         return response;
     }
     int senderId = 0;
     if(!userDAO->GetUserIdByUsername(request.username, senderId)){
         response.code = 4003;
         response.msg = "发送者不存在";
-        std::cout << "[MessageManager::HandleSendMessage]发送者不存在" << std::endl;
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "MessageManager", "发送发送者不存在");
         return response;
     }
     int receiverId = 0;
     if(!userDAO->GetUserIdByUsername(request.targetUsername, receiverId)){
         response.code = 4003;
         response.msg = "接收方不存在";
-        std::cout << "[MessageManager::HandleSendMessage]接收方不存在" << std::endl;
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "MessageManager", "发送接收方不存在");
         return response;
     }
     if(!StoreMessage(senderId, receiverId, request.content)){
         response.code = 5001;
         response.msg = "数据库操作失败";
-        std::cout << "[MessageManager::HandleSendMessage]存储消息失败" << std::endl;
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "MessageManager", "发送存储消息失败");
         return response;
     }
     bool isOnline = false;
@@ -80,7 +81,9 @@ Response MessageManager::HandleSendMessage(const Request& request){
     }
     response.code = 0;
     response.msg = "发送成功";
-    std::cout << "[MessageManager::HandleSendMessage]消息发送成功：" << request.username << " -> " << request.targetUsername << std::endl;
+    ServerLogger::GetInstance().WriteLog(
+        LogLevel::INFO, "MessageManager", "发送消息发送成功：" + request.username + " -> " + request.targetUsername
+    );
     return response;
 }
 
@@ -94,21 +97,21 @@ Response MessageManager::HandleHistoryMessages(const Request& request){
     if(request.targetUsername.empty()){
         response.code = 1001;
         response.msg = "目标用户名不能为空";
-        std::cout << "[MessageManager::HandleHistoryMessages]目标用户名不能为空" << std::endl;
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "MessageManager", "查询目标用户名不能为空");
         return response;
     }
     int userId1 = 0;
     if(!userDAO->GetUserIdByUsername(request.username, userId1)){
         response.code = 4003;
         response.msg = "用户不存在";
-        std::cout << "[MessageManager::HandleHistoryMessages]用户不存在" << std::endl;
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "MessageManager", "查询用户不存在");
         return response;
     }
     int userId2 = 0;
     if(!userDAO->GetUserIdByUsername(request.targetUsername, userId2)){
         response.code = 4003;
         response.msg = "目标用户不存在";
-        std::cout << "[MessageManager::HandleHistoryMessages]目标用户不存在" << std::endl;
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "MessageManager", "查询目标用户不存在");
         return response;
     }
     int count = request.count;
@@ -119,7 +122,7 @@ Response MessageManager::HandleHistoryMessages(const Request& request){
     if(!messageDAO->GetHistoryMessages(userId1, userId2, count, messages)){
         response.code = 5002;
         response.msg = "数据库查询失败";
-        std::cout << "[MessageManager::HandleHistoryMessages]数据库查询失败" << std::endl;
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "MessageManager", "查询数据库查询失败");
         return response;
     }
     Json::Value messagesArray(Json::arrayValue);
@@ -137,7 +140,10 @@ Response MessageManager::HandleHistoryMessages(const Request& request){
     response.data = writer.write(dataObj);
     response.code = 0;
     response.msg = "查询成功";
-    std::cout << "[MessageManager::HandleHistoryMessages]查询历史消息成功,用户名: " << request.username << ", 目标用户名: " << request.targetUsername << ", 消息数量: " << messages.size() << std::endl;
+    ServerLogger::GetInstance().WriteLog(
+        LogLevel::INFO, "MessageManager", 
+        "查询历史消息成功,用户名: " + request.username + " -> " + request.targetUsername + ", " + std::to_string(messages.size())
+    );
     return response;
 }
 
@@ -148,12 +154,12 @@ Response MessageManager::HandleHistoryMessages(const Request& request){
 void MessageManager::PushOfflineMessages(const std::string& username){
     int userId = 0;
     if(!userDAO->GetUserIdByUsername(username, userId)){
-        std::cout << "[MessageManager::PushOfflineMessages]用户不存在,用户名: " << username << std::endl;
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "MessageManager", "推送用户不存在");
         return;
     }
     std::vector<Message> messages;
     if(!messageDAO->GetUnreadMessages(userId, messages)){
-        std::cout << "[MessageManager::PushOfflineMessages]查询未读消息失败,用户名: " << username << std::endl;
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "MessageManager", "推送查询消息失败");
         return;
     }
     if(messages.empty()){
@@ -161,7 +167,7 @@ void MessageManager::PushOfflineMessages(const std::string& username){
     }
     ClientSession* session = sessionManager->GetSessionByUsername(username);
     if(!session || !sendCallback){
-        std::cout << "[MessageManager::PushOfflineMessages]用户会话不存在或发送回调未设置,用户名: " << username << std::endl;
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "MessageManager", "推送用户会话不存在或发送回调未设置");
         return;
     }
     int clientSocket = session->GetSocket();
@@ -170,7 +176,9 @@ void MessageManager::PushOfflineMessages(const std::string& username){
             msg.content, msg.sendTime);
         SendNotification(clientSocket, msg.senderUsername, msg.content);
     }
-    std::cout << "[MessageManager::PushOfflineMessages]推送离线消息成功,用户名: " << username << ", 消息数量: " << messages.size() << std::endl;
+    ServerLogger::GetInstance().WriteLog(
+        LogLevel::INFO, "MessageManager", "推送离线消息成功,用户名: " + username + ", " + std::to_string(messages.size())
+    );
 }
 
 /**
@@ -213,7 +221,7 @@ bool MessageManager::ForwardMessage(int senderId, const std::string& senderUsern
     const std::string& sendTime){
     ClientSession* receiverSession = sessionManager->GetSessionByUsername(receiverUsername);
     if(!receiverSession){
-        std::cout << "[MessageManager::ForwardMessage]接收方不在线,接收方: " << receiverUsername << std::endl;
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "MessageManager", "转发接收方不在线");
         return false;
     }
     Json::Value forwardJson;
@@ -254,7 +262,9 @@ void MessageManager::SendNotification(int receiverSocket, const std::string& sen
     if(sendCallback){
         sendCallback(receiverSocket, notifyStr);
     }
-    std::cout << "[MessageManager::SendNotification]发送消息通知,发送者: " << senderUsername << std::endl;
+    ServerLogger::GetInstance().WriteLog(
+        LogLevel::INFO, "MessageManager", "发送消息通知成功,发送者: " + senderUsername
+    );
 }
 
 /**

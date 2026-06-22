@@ -25,13 +25,13 @@ private:
     void MonitorThreadFunc();
 
 private:
-    DBManager* dbManager;
-    SessionManager* sessionManager;
-    ThreadPool* threadPool;
-    std::atomic<int>* currentConnections;
-    int monitorInterval;
-    std::thread* monitorThread;
-    std::atomic<bool> isRunning;
+    DBManager* dbManager;  // 数据库管理器
+    SessionManager* sessionManager;  // 会话管理器
+    ThreadPool* threadPool;  // 线程池
+    std::atomic<int>* currentConnections;  // 当前连接数
+    int monitorInterval;  // 监控间隔（秒）
+    std::thread* monitorThread;  // 监控线程
+    std::atomic<bool> isRunning;  // 监控线程是否运行中
 };
 
 #endif // SERVER_MONITOR_H

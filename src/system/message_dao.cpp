@@ -1,13 +1,20 @@
 #include "message_dao.h"
-#include <iostream>
-#include <cstring>
-#include <cstdio>
+#include "server_logger.h"
+#include <cppconn/prepared_statement.h>
+#include <cppconn/resultset.h>
 
+/**
+ * @brief MessageDAO构造函数，初始化数据库管理器指针
+ * @param dbManager 数据库管理器指针
+ */
 MessageDAO::MessageDAO(DBManager* dbManager)
     : dbManager(dbManager)
 {
 }
 
+/**
+ * @brief MessageDAO析构函数
+ */
 MessageDAO::~MessageDAO(){}
 
 /**
@@ -18,42 +25,30 @@ MessageDAO::~MessageDAO(){}
  * @return 插入成功返回true，失败返回false
  */
 bool MessageDAO::InsertMessage(int senderId, int receiverId, const std::string& content){
-    MYSQL* conn = dbManager->GetConnection();
+    sql::Connection* conn = dbManager->GetConnection();
     if(!conn){
-        std::cerr << "[MessageDAO::InsertMessage]获取数据库连接失败" << std::endl;
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "MessageDAO", "获取数据库连接失败");
         return false;
     }
-    const char* sql = "INSERT INTO messages (sender_id, receiver_id, content) VALUES (?, ?, ?)";
-    MYSQL_STMT* stmt = dbManager->PrepareStatement(conn, sql);
-    if(!stmt){
-        std::cerr << "[MessageDAO::InsertMessage]预编译语句失败" << std::endl;
-        dbManager->ReleaseConnection(conn);
-        return false;
+    bool result = false;
+    try{
+        sql::PreparedStatement* pstmt = conn->prepareStatement(
+            "INSERT INTO messages (sender_id, receiver_id, content) VALUES (?, ?, ?)"
+        );  // 创建预处理语句
+        pstmt->setInt(1, senderId);  // 设置第一个参数位为发送者ID
+        pstmt->setInt(2, receiverId);  // 设置第二个参数位为接收者ID
+        pstmt->setString(3, content);  // 设置第三个参数位为消息内容
+        pstmt->executeUpdate();  // 执行预处理语句（插入）
+        result = true;
+        ServerLogger::GetInstance().WriteLog(LogLevel::INFO, "MessageDAO", "插入消息到数据库成功");
+        delete pstmt;
     }
-    MYSQL_BIND bind[3];
-    memset(bind, 0, sizeof(bind));
-    bind[0].buffer_type = MYSQL_TYPE_LONG;
-    bind[0].buffer = &senderId;
-    bind[1].buffer_type = MYSQL_TYPE_LONG;
-    bind[1].buffer = &receiverId;
-    unsigned long contentLen = static_cast<unsigned long>(content.length());
-    bind[2].buffer_type = MYSQL_TYPE_STRING;
-    bind[2].buffer = const_cast<char*>(content.c_str());
-    bind[2].buffer_length = contentLen;
-    bind[2].length = &contentLen;
-    if(mysql_stmt_bind_param(stmt, bind) != 0){
-        std::cerr << "[MessageDAO::InsertMessage]绑定参数失败: " << mysql_stmt_error(stmt) << std::endl;
-        dbManager->CloseStatement(stmt);
-        dbManager->ReleaseConnection(conn);
-        return false;
+    catch(sql::SQLException& e){
+        ServerLogger::GetInstance().WriteLog(
+            LogLevel::ERROR, "MessageDAO", "插入消息到数据库失败: " + std::string(e.what())
+        );
+        result = false;
     }
-    bool result = (mysql_stmt_execute(stmt) == 0);
-    if(!result){
-        std::cerr << "[MessageDAO::InsertMessage]插入消息到数据库失败: " << mysql_stmt_error(stmt) << std::endl;
-    } else {
-        std::cout << "[MessageDAO::InsertMessage]插入消息到数据库成功" << std::endl;
-    }
-    dbManager->CloseStatement(stmt);
     dbManager->ReleaseConnection(conn);
     return result;
 }
@@ -65,108 +60,48 @@ bool MessageDAO::InsertMessage(int senderId, int receiverId, const std::string& 
  * @return 查询成功返回true，失败返回false
  */
 bool MessageDAO::GetUnreadMessages(int userId, std::vector<Message>& messages){
-    MYSQL* conn = dbManager->GetConnection();
+    sql::Connection* conn = dbManager->GetConnection();
     if(!conn){
-        std::cerr << "[MessageDAO::GetUnreadMessages]获取数据库连接失败" << std::endl;
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "MessageDAO", "获取数据库连接失败");
         return false;
     }
-    const char* sql = "SELECT m.message_id, m.sender_id, m.receiver_id, m.content, m.send_time, m.is_read, "
-        "u1.username AS sender_username, u2.username AS receiver_username "
-        "FROM messages m "
-        "INNER JOIN users u1 ON m.sender_id = u1.user_id "
-        "INNER JOIN users u2 ON m.receiver_id = u2.user_id "
-        "WHERE m.receiver_id = ? AND m.is_read = 0 "
-        "ORDER BY m.send_time ASC";
-    MYSQL_STMT* stmt = dbManager->PrepareStatement(conn, sql);
-    if(!stmt){
-        std::cerr << "[MessageDAO::GetUnreadMessages]预编译语句失败" << std::endl;
-        dbManager->ReleaseConnection(conn);
-        return false;
+    bool result = true;
+    try{
+        sql::PreparedStatement* pstmt = conn->prepareStatement(
+            "SELECT m.message_id, m.sender_id, m.receiver_id, m.content, m.send_time, m.is_read, "
+            "u1.username AS sender_username, u2.username AS receiver_username "
+            "FROM messages m "
+            "INNER JOIN users u1 ON m.sender_id = u1.user_id "
+            "INNER JOIN users u2 ON m.receiver_id = u2.user_id "
+            "WHERE m.receiver_id = ? AND m.is_read = 0 "
+            "ORDER BY m.send_time ASC"
+        );
+        pstmt->setInt(1, userId);
+        sql::ResultSet* res = pstmt->executeQuery();  // 执行预处理语句（查询）
+        while(res->next()){  // 遍历查询下一行结果
+            Message msg;
+            msg.messageId = res->getInt("message_id");  // 获取消息ID
+            msg.senderId = res->getInt("sender_id");  // 获取发送者ID
+            msg.receiverId = res->getInt("receiver_id");  // 获取接收者ID
+            msg.content = res->getString("content");  // 获取消息内容
+            msg.sendTime = res->getString("send_time");  // 获取发送时间
+            msg.isRead = res->getBoolean("is_read");  // 获取是否已读
+            msg.senderUsername = res->getString("sender_username");  // 获取发送者用户名
+            msg.receiverUsername = res->getString("receiver_username");  // 获取接收者用户名
+            messages.push_back(msg);  // 将消息添加到列表
+        }
+        ServerLogger::GetInstance().WriteLog(LogLevel::INFO, "MessageDAO", "查询未读消息成功");
+        delete res;
+        delete pstmt;
     }
-    MYSQL_BIND bind[1];
-    memset(bind, 0, sizeof(bind));
-    bind[0].buffer_type = MYSQL_TYPE_LONG;
-    bind[0].buffer = &userId;
-    if(mysql_stmt_bind_param(stmt, bind) != 0){
-        std::cerr << "[MessageDAO::GetUnreadMessages]绑定参数失败: " << mysql_stmt_error(stmt) << std::endl;
-        dbManager->CloseStatement(stmt);
-        dbManager->ReleaseConnection(conn);
-        return false;
+    catch(sql::SQLException& e){
+        ServerLogger::GetInstance().WriteLog(
+            LogLevel::ERROR, "MessageDAO", "查询未读消息失败: " + std::string(e.what())
+        );
+        result = false;
     }
-    if(mysql_stmt_execute(stmt) != 0){
-        std::cerr << "[MessageDAO::GetUnreadMessages]执行查询失败: " << mysql_stmt_error(stmt) << std::endl;
-        dbManager->CloseStatement(stmt);
-        dbManager->ReleaseConnection(conn);
-        return false;
-    }
-    int resultMsgId = 0;
-    int resultSenderId = 0;
-    int resultReceiverId = 0;
-    char resultContent[4096];
-    MYSQL_TIME resultSendTime;
-    int resultIsRead = 0;
-    char resultSenderUsername[256];
-    char resultReceiverUsername[256];
-    unsigned long contentLen = 0;
-    unsigned long senderUsernameLen = 0;
-    unsigned long receiverUsernameLen = 0;
-    MYSQL_BIND result[8];
-    memset(result, 0, sizeof(result));
-    result[0].buffer_type = MYSQL_TYPE_LONG;
-    result[0].buffer = &resultMsgId;
-    result[1].buffer_type = MYSQL_TYPE_LONG;
-    result[1].buffer = &resultSenderId;
-    result[2].buffer_type = MYSQL_TYPE_LONG;
-    result[2].buffer = &resultReceiverId;
-    result[3].buffer_type = MYSQL_TYPE_STRING;
-    result[3].buffer = resultContent;
-    result[3].buffer_length = sizeof(resultContent);
-    result[3].length = &contentLen;
-    result[4].buffer_type = MYSQL_TYPE_DATETIME;
-    result[4].buffer = &resultSendTime;
-    result[5].buffer_type = MYSQL_TYPE_LONG;
-    result[5].buffer = &resultIsRead;
-    result[6].buffer_type = MYSQL_TYPE_STRING;
-    result[6].buffer = resultSenderUsername;
-    result[6].buffer_length = sizeof(resultSenderUsername);
-    result[6].length = &senderUsernameLen;
-    result[7].buffer_type = MYSQL_TYPE_STRING;
-    result[7].buffer = resultReceiverUsername;
-    result[7].buffer_length = sizeof(resultReceiverUsername);
-    result[7].length = &receiverUsernameLen;
-    if(mysql_stmt_bind_result(stmt, result) != 0){
-        std::cerr << "[MessageDAO::GetUnreadMessages]绑定结果失败: " << mysql_stmt_error(stmt) << std::endl;
-        dbManager->CloseStatement(stmt);
-        dbManager->ReleaseConnection(conn);
-        return false;
-    }
-    if(mysql_stmt_store_result(stmt) != 0){
-        std::cerr << "[MessageDAO::GetUnreadMessages]存储结果失败: " << mysql_stmt_error(stmt) << std::endl;
-        dbManager->CloseStatement(stmt);
-        dbManager->ReleaseConnection(conn);
-        return false;
-    }
-    while(mysql_stmt_fetch(stmt) == 0){
-        Message msg;
-        msg.messageId = resultMsgId;
-        msg.senderId = resultSenderId;
-        msg.receiverId = resultReceiverId;
-        msg.content = std::string(resultContent, contentLen);
-        char timeBuf[64];
-        snprintf(timeBuf, sizeof(timeBuf), "%04d-%02d-%02d %02d:%02d:%02d",
-            resultSendTime.year, resultSendTime.month, resultSendTime.day,
-            resultSendTime.hour, resultSendTime.minute, resultSendTime.second);
-        msg.sendTime = timeBuf;
-        msg.isRead = (resultIsRead == 1);
-        msg.senderUsername = std::string(resultSenderUsername, senderUsernameLen);
-        msg.receiverUsername = std::string(resultReceiverUsername, receiverUsernameLen);
-        messages.push_back(msg);
-    }
-    std::cout << "[MessageDAO::GetUnreadMessages]查询未读消息成功" << std::endl;
-    mysql_stmt_free_result(stmt);
-    dbManager->CloseStatement(stmt);
     dbManager->ReleaseConnection(conn);
-    return true;
+    return result;
 }
 
 /**
@@ -176,37 +111,29 @@ bool MessageDAO::GetUnreadMessages(int userId, std::vector<Message>& messages){
  * @return 更新成功返回true，失败返回false
  */
 bool MessageDAO::MarkMessagesAsRead(int senderId, int receiverId){
-    MYSQL* conn = dbManager->GetConnection();
+    sql::Connection* conn = dbManager->GetConnection();
     if(!conn){
-        std::cerr << "[MessageDAO::MarkMessagesAsRead]获取数据库连接失败" << std::endl;
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "MessageDAO", "获取数据库连接失败");
         return false;
     }
-    const char* sql = "UPDATE messages SET is_read = 1 WHERE sender_id = ? AND receiver_id = ? AND is_read = 0";
-    MYSQL_STMT* stmt = dbManager->PrepareStatement(conn, sql);
-    if(!stmt){
-        std::cerr << "[MessageDAO::MarkMessagesAsRead]预编译语句失败" << std::endl;
-        dbManager->ReleaseConnection(conn);
-        return false;
+    bool result = false;
+    try{
+        sql::PreparedStatement* pstmt = conn->prepareStatement(
+            "UPDATE messages SET is_read = 1 WHERE sender_id = ? AND receiver_id = ? AND is_read = 0"
+        );
+        pstmt->setInt(1, senderId);
+        pstmt->setInt(2, receiverId);
+        pstmt->executeUpdate();
+        result = true;
+        ServerLogger::GetInstance().WriteLog(LogLevel::INFO, "MessageDAO", "执行标记消息已读成功");
+        delete pstmt;
     }
-    MYSQL_BIND bind[2];
-    memset(bind, 0, sizeof(bind));
-    bind[0].buffer_type = MYSQL_TYPE_LONG;
-    bind[0].buffer = &senderId;
-    bind[1].buffer_type = MYSQL_TYPE_LONG;
-    bind[1].buffer = &receiverId;
-    if(mysql_stmt_bind_param(stmt, bind) != 0){
-        std::cerr << "[MessageDAO::MarkMessagesAsRead]绑定参数失败: " << mysql_stmt_error(stmt) << std::endl;
-        dbManager->CloseStatement(stmt);
-        dbManager->ReleaseConnection(conn);
-        return false;
+    catch(sql::SQLException& e){
+        ServerLogger::GetInstance().WriteLog(
+            LogLevel::ERROR, "MessageDAO", "执行标记消息已读失败: " + std::string(e.what())
+        );
+        result = false;
     }
-    bool result = (mysql_stmt_execute(stmt) == 0);
-    if(!result){
-        std::cerr << "[MessageDAO::MarkMessagesAsRead]标记消息已读失败: " << mysql_stmt_error(stmt) << std::endl;
-    } else {
-        std::cout << "[MessageDAO::MarkMessagesAsRead]标记消息已读成功" << std::endl;
-    }
-    dbManager->CloseStatement(stmt);
     dbManager->ReleaseConnection(conn);
     return result;
 }
@@ -220,114 +147,53 @@ bool MessageDAO::MarkMessagesAsRead(int senderId, int receiverId){
  * @return 查询成功返回true，失败返回false
  */
 bool MessageDAO::GetHistoryMessages(int userId1, int userId2, int count, std::vector<Message>& messages){
-    MYSQL* conn = dbManager->GetConnection();
+    sql::Connection* conn = dbManager->GetConnection();
     if(!conn){
-        std::cerr << "[MessageDAO::GetHistoryMessages]获取数据库连接失败" << std::endl;
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "MessageDAO", "获取数据库连接失败");
         return false;
     }
-    const char* sql = "SELECT m.message_id, m.sender_id, m.receiver_id, m.content, m.send_time, m.is_read, "
-        "u1.username AS sender_username, u2.username AS receiver_username "
-        "FROM messages m "
-        "INNER JOIN users u1 ON m.sender_id = u1.user_id "
-        "INNER JOIN users u2 ON m.receiver_id = u2.user_id "
-        "WHERE (m.sender_id = ? AND m.receiver_id = ?) OR (m.sender_id = ? AND m.receiver_id = ?) "
-        "ORDER BY m.send_time ASC LIMIT ?";
-    MYSQL_STMT* stmt = dbManager->PrepareStatement(conn, sql);
-    if(!stmt){
-        std::cerr << "[MessageDAO::GetHistoryMessages]预编译语句失败" << std::endl;
-        dbManager->ReleaseConnection(conn);
-        return false;
+    bool result = true;
+    try{
+        sql::PreparedStatement* pstmt = conn->prepareStatement(
+            "SELECT m.message_id, m.sender_id, m.receiver_id, m.content, m.send_time, m.is_read, "
+            "u1.username AS sender_username, u2.username AS receiver_username "
+            "FROM messages m "
+            "INNER JOIN users u1 ON m.sender_id = u1.user_id "
+            "INNER JOIN users u2 ON m.receiver_id = u2.user_id "
+            "WHERE (m.sender_id = ? AND m.receiver_id = ?) OR (m.sender_id = ? AND m.receiver_id = ?) "
+            "ORDER BY m.send_time ASC LIMIT ?"
+        );
+        pstmt->setInt(1, userId1);
+        pstmt->setInt(2, userId2);
+        pstmt->setInt(3, userId2);
+        pstmt->setInt(4, userId1);
+        pstmt->setInt(5, count);
+        sql::ResultSet* res = pstmt->executeQuery();
+        while(res->next()){
+            Message msg;
+            msg.messageId = res->getInt("message_id");
+            msg.senderId = res->getInt("sender_id");
+            msg.receiverId = res->getInt("receiver_id");
+            msg.content = res->getString("content");
+            msg.sendTime = res->getString("send_time");
+            msg.isRead = res->getBoolean("is_read");
+            msg.senderUsername = res->getString("sender_username");
+            msg.receiverUsername = res->getString("receiver_username");
+            messages.push_back(msg);
+        }
+        ServerLogger::GetInstance().WriteLog(
+            LogLevel::INFO, "MessageDAO",
+            "查询历史消息成功, 共" + std::to_string(messages.size()) + "条消息"
+        );
+        delete res;
+        delete pstmt;
     }
-    MYSQL_BIND bind[5];
-    memset(bind, 0, sizeof(bind));
-    bind[0].buffer_type = MYSQL_TYPE_LONG;
-    bind[0].buffer = &userId1;
-    bind[1].buffer_type = MYSQL_TYPE_LONG;
-    bind[1].buffer = &userId2;
-    bind[2].buffer_type = MYSQL_TYPE_LONG;
-    bind[2].buffer = &userId2;
-    bind[3].buffer_type = MYSQL_TYPE_LONG;
-    bind[3].buffer = &userId1;
-    bind[4].buffer_type = MYSQL_TYPE_LONG;
-    bind[4].buffer = &count;
-    if(mysql_stmt_bind_param(stmt, bind) != 0){
-        std::cerr << "[MessageDAO::GetHistoryMessages]绑定参数失败: " << mysql_stmt_error(stmt) << std::endl;
-        dbManager->CloseStatement(stmt);
-        dbManager->ReleaseConnection(conn);
-        return false;
+    catch(sql::SQLException& e){
+        ServerLogger::GetInstance().WriteLog(
+            LogLevel::ERROR, "MessageDAO", "查询历史消息失败: " + std::string(e.what())
+        );
+        result = false;
     }
-    if(mysql_stmt_execute(stmt) != 0){
-        std::cerr << "[MessageDAO::GetHistoryMessages]执行查询失败: " << mysql_stmt_error(stmt) << std::endl;
-        dbManager->CloseStatement(stmt);
-        dbManager->ReleaseConnection(conn);
-        return false;
-    }
-    int resultMsgId = 0;
-    int resultSenderId = 0;
-    int resultReceiverId = 0;
-    char resultContent[4096];
-    MYSQL_TIME resultSendTime;
-    int resultIsRead = 0;
-    char resultSenderUsername[256];
-    char resultReceiverUsername[256];
-    unsigned long contentLen = 0;
-    unsigned long senderUsernameLen = 0;
-    unsigned long receiverUsernameLen = 0;
-    MYSQL_BIND result[8];
-    memset(result, 0, sizeof(result));
-    result[0].buffer_type = MYSQL_TYPE_LONG;
-    result[0].buffer = &resultMsgId;
-    result[1].buffer_type = MYSQL_TYPE_LONG;
-    result[1].buffer = &resultSenderId;
-    result[2].buffer_type = MYSQL_TYPE_LONG;
-    result[2].buffer = &resultReceiverId;
-    result[3].buffer_type = MYSQL_TYPE_STRING;
-    result[3].buffer = resultContent;
-    result[3].buffer_length = sizeof(resultContent);
-    result[3].length = &contentLen;
-    result[4].buffer_type = MYSQL_TYPE_DATETIME;
-    result[4].buffer = &resultSendTime;
-    result[5].buffer_type = MYSQL_TYPE_LONG;
-    result[5].buffer = &resultIsRead;
-    result[6].buffer_type = MYSQL_TYPE_STRING;
-    result[6].buffer = resultSenderUsername;
-    result[6].buffer_length = sizeof(resultSenderUsername);
-    result[6].length = &senderUsernameLen;
-    result[7].buffer_type = MYSQL_TYPE_STRING;
-    result[7].buffer = resultReceiverUsername;
-    result[7].buffer_length = sizeof(resultReceiverUsername);
-    result[7].length = &receiverUsernameLen;
-    if(mysql_stmt_bind_result(stmt, result) != 0){
-        std::cerr << "[MessageDAO::GetHistoryMessages]绑定结果失败: " << mysql_stmt_error(stmt) << std::endl;
-        dbManager->CloseStatement(stmt);
-        dbManager->ReleaseConnection(conn);
-        return false;
-    }
-    if(mysql_stmt_store_result(stmt) != 0){
-        std::cerr << "[MessageDAO::GetHistoryMessages]存储结果失败: " << mysql_stmt_error(stmt) << std::endl;
-        dbManager->CloseStatement(stmt);
-        dbManager->ReleaseConnection(conn);
-        return false;
-    }
-    while(mysql_stmt_fetch(stmt) == 0){
-        Message msg;
-        msg.messageId = resultMsgId;
-        msg.senderId = resultSenderId;
-        msg.receiverId = resultReceiverId;
-        msg.content = std::string(resultContent, contentLen);
-        char timeBuf[64];
-        snprintf(timeBuf, sizeof(timeBuf), "%04d-%02d-%02d %02d:%02d:%02d",
-            resultSendTime.year, resultSendTime.month, resultSendTime.day,
-            resultSendTime.hour, resultSendTime.minute, resultSendTime.second);
-        msg.sendTime = timeBuf;
-        msg.isRead = (resultIsRead == 1);
-        msg.senderUsername = std::string(resultSenderUsername, senderUsernameLen);
-        msg.receiverUsername = std::string(resultReceiverUsername, receiverUsernameLen);
-        messages.push_back(msg);
-    }
-    std::cout << "[MessageDAO::GetHistoryMessages]查询历史消息成功" << std::endl;
-    mysql_stmt_free_result(stmt);
-    dbManager->CloseStatement(stmt);
     dbManager->ReleaseConnection(conn);
-    return true;
+    return result;
 }

@@ -80,6 +80,7 @@ void Server::SetDBManager(DBManager* dbMgr){
  */
 bool Server::Start(){
     if(!dbManager){
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "Server", "数据库管理器未初始化");
         std::cerr << "[Server::Start]数据库管理器未初始化" << std::endl;
         return false;
     }
@@ -103,6 +104,7 @@ bool Server::Start(){
     // 创建socket
     serverSocket = socket(AF_INET, SOCK_STREAM, 0);
     if(serverSocket == -1){
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "Server", "创建socket失败");
         std::cerr << "[Server::Start]创建socket失败" << std::endl;
         return false;
     }
@@ -110,6 +112,7 @@ bool Server::Start(){
     int opt = 1;
     int resetport = setsockopt(serverSocket, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
     if(resetport == -1){
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "Server", "设置端口复用失败");
         std::cerr << "[Server::Start]设置端口复用失败" << std::endl;
         close(serverSocket);
         return false;
@@ -123,6 +126,7 @@ bool Server::Start(){
     // 绑定服务端IP和端口
     int bindres = bind(serverSocket, (struct sockaddr*)&serverAddr, sizeof(serverAddr));
     if(bindres == -1){
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "Server", "绑定IP和端口失败");
         std::cerr << "[Server::Start]绑定IP和端口失败" << std::endl;
         close(serverSocket);
         return false;
@@ -130,18 +134,19 @@ bool Server::Start(){
     // 监听连接
     int listenres = listen(serverSocket, maxConnections);
     if(listenres == -1){
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "Server", "监听失败");
         std::cerr << "[Server::Start]监听失败" << std::endl;
         close(serverSocket);
         return false;
     }
     // 设置服务器为运行状态、启动心跳检查线程
-    std::cout << "[Server::Start]服务器启动成功，监听端口" << serverPort << std::endl;
     running = true;
     StartHeartbeatCheck();
     exceptionHandler = new ExceptionHandler(dbManager);
     monitor = new ServerMonitor(dbManager, sessionManager, threadPool, &currentConnections);
     monitor->StartMonitor();
     ServerLogger::GetInstance().WriteLog(LogLevel::INFO, "Server", "服务器启动成功，监听端口" + std::to_string(serverPort));
+    std::cout << "[Server::Start]服务器启动成功，监听端口" << serverPort << std::endl;
     return true;
 }
 
@@ -191,6 +196,7 @@ void Server::AcceptConnections(){
                 close(clientSocket);  // 关闭客户端socket
                 break;
             }
+            ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "Server", "接受客户端连接失败");
             std::cerr << "[Server::AcceptConnections]接受客户端连接失败" << std::endl;
             continue;
         }
@@ -206,6 +212,7 @@ void Server::AcceptConnections(){
         int clientPort = ntohs(clientAddr.sin_port);  // 将客户端端口转为主机字节序
         ClientSession* session = new ClientSession(clientSocket, clientIP, clientPort);  // 创建新会话
         sessionManager->AddSession(clientSocket, session);  // 添加会话到会话管理器
+        ServerLogger::GetInstance().WriteLog(LogLevel::INFO, "Server", "客户端连接成功：" + clientIP + ":" + std::to_string(clientPort));
         std::cout << "[Server::AcceptConnections]客户端连接成功：" << clientIP << ":" << clientPort << std::endl;
         currentConnections++;  // 增加当前连接数
         threadPool->SubmitTask([this, clientSocket](){ HandleClient(clientSocket); });  // 提交处理任务到线程池
@@ -221,6 +228,7 @@ void Server::HandleClient(int clientSocket){
         while(running){  // 如果服务器处于运行状态
             std::string data = ReceiveData(clientSocket);  // 接收客户端数据
             if(data.empty()){  // 如果收到空数据
+                ServerLogger::GetInstance().WriteLog(LogLevel::INFO, "Server", "收到空数据");
                 std::cout << "[Server::HandleClient]收到空数据" << std::endl;
                 break;
             }
@@ -238,6 +246,7 @@ void Server::HandleClient(int clientSocket){
             sessionManager->RemoveSession(clientSocket);  // 移除会话
             currentConnections--;  // 减少当前连接数
         }
+        ServerLogger::GetInstance().WriteLog(LogLevel::INFO, "Server", "客户端断开连接");
         std::cout << "[Server::HandleClient]客户端断开连接" << std::endl;
         close(clientSocket);  // 关闭客户端socket
     }
@@ -269,12 +278,14 @@ std::string Server::ReceiveData(int clientSocket){
     char header[4];
     int bytesRead = recv(clientSocket, header, 4, 0);
     if(bytesRead <= 0){
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "Server", "接收消息头失败");
         std::cerr << "[Server::ReceiveData]接收消息头失败,bytesRead: " << bytesRead << ", errno: " << errno << " (" << strerror(errno) << ")" << std::endl;
         return "";
     }
     // 解析消息头长度
     uint32_t messageLength = ParseMessageHeader(header);
     if(messageLength == 0 || messageLength > 65536){
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "Server", "消息头长度无效");
         std::cerr << "[Server::ReceiveData]消息头长度无效" << std::endl;
         return "";
     }
@@ -284,6 +295,7 @@ std::string Server::ReceiveData(int clientSocket){
     while(totalRead < messageLength){
         bytesRead = recv(clientSocket, &messageBody[totalRead], messageLength - totalRead, 0);
         if(bytesRead <= 0){
+            ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "Server", "接收消息体失败");
             std::cerr << "[Server::ReceiveData]接收消息体失败" << std::endl;
             return "";
         }
@@ -306,11 +318,13 @@ bool Server::SendData(int clientSocket, const std::string& data){
     while(totalSent < totalLength){
         int bytesSent = send(clientSocket, packagedData.c_str() + totalSent, totalLength - totalSent, 0);
         if(bytesSent <= 0){
+            ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "Server", "发送数据失败");
             std::cerr << "[Server::SendData]发送数据失败,errno: " << errno << " (" << strerror(errno) << ")" << std::endl;
             return false;
         }
         totalSent += bytesSent;
     }
+    ServerLogger::GetInstance().WriteLog(LogLevel::INFO, "Server", "发送数据成功,长度: " + std::to_string(totalSent));
     std::cout << "[Server::SendData]发送数据成功,长度: " << totalSent << std::endl;
     return true;
 }
@@ -441,6 +455,9 @@ void Server::HeartbeatCheckThread(){
             if(session->GetIsConnected() && !session->GetUsername().empty()){  // 若会话已连接且有用户名
                 // 若会话最后心跳时间与当前时间差超过10分钟
                 if(difftime(currentTime, session->GetLastHeartbeat()) > 600){
+                    ServerLogger::GetInstance().WriteLog(
+                        LogLevel::ERROR, "Server", "客户端10分钟无响应, 心跳超时, 断开客户端: " + session->GetUsername()
+                    );
                     std::cout << "[Server::HeartbeatCheckThread]客户端10分钟无响应, 心跳超时, 断开客户端: " << session->GetUsername() << std::endl;
                     userManager->UpdateUserOnlineStatus(session->GetUsername(), false);  // 更新用户在线状态为离线
                     userManager->NotifyFriendsStatusChange(session->GetUsername(), UserStatus::Offline);  // 通知好友状态改变
@@ -534,6 +551,7 @@ void Server::DispatchRequest(int clientSocket, const std::string& data){
         auto session = sessionManager->GetSession(clientSocket);
         if(session && !session->GetUsername().empty()){
             request.username = session->GetUsername();
+            ServerLogger::GetInstance().WriteLog(LogLevel::INFO, "Server", "从会话中获取用户名: " + request.username);
             std::cout << "[Server::DispatchRequest]从会话中获取用户名：" << request.username << std::endl;
         }
     }
@@ -544,6 +562,7 @@ void Server::DispatchRequest(int clientSocket, const std::string& data){
                 request.targetUsername = request.username;
             }
             request.username = session->GetUsername();
+            ServerLogger::GetInstance().WriteLog(LogLevel::INFO, "Server", "从会话中获取用户名: " + request.username);
             std::cout << "[Server::DispatchRequest]从会话中获取用户名：" << request.username << std::endl;
         }
     }
@@ -667,6 +686,7 @@ void Server::DispatchRequest(int clientSocket, const std::string& data){
     Json::FastWriter writer;
     std::string responseStr = writer.write(jsonResponse);
     if(SendData(clientSocket, responseStr)){
+        ServerLogger::GetInstance().WriteLog(LogLevel::INFO, "Server", "响应已发送, 类型: " + (type + "_RESPONSE"));
         std::cout << "[Server::DispatchRequest]响应已发送, 类型: " << (type + "_RESPONSE") << std::endl;
     }
 }

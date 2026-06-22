@@ -1,4 +1,5 @@
 #include "user_manager.h"
+#include "server_logger.h"
 #include <iostream>
 #include <regex>
 #include <openssl/evp.h>
@@ -39,37 +40,37 @@ Response UserManager::HandleRegister(const Request& request){
     if(!userDAO){
         response.code = 5001;
         response.msg = "服务器内部错误";
-        std::cout << "[UserManager::HandleRegister]服务器内部错误" << std::endl;
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "UserManager", "处理注册请求时服务器内部错误");
         return response;
     }
     if(!ValidateUsername(request.username)){
         response.code = 2001;
         response.msg = "用户名格式不合法";
-        std::cout << "[UserManager::HandleRegister]用户名格式不合法" << std::endl;
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "UserManager", "处理注册请求时用户名格式不合法");
         return response;
     }
     if(!ValidatePassword(request.password)){
         response.code = 2001;
         response.msg = "密码格式不合法";
-        std::cout << "[UserManager::HandleRegister]密码格式不合法" << std::endl;
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "UserManager", "处理注册请求时密码格式不合法");
         return response;
     }
     if(userDAO->CheckUsernameExists(request.username)){
         response.code = 2002;
         response.msg = "用户名已存在";
-        std::cout << "[UserManager::HandleRegister]用户名已存在" << std::endl;
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "UserManager", "处理注册请求时用户名已存在");
         return response;
     }
     std::string passwordHash = MD5Encrypt(request.password);
     if(!userDAO->InsertUser(request.username, passwordHash)){
         response.code = 5001;
         response.msg = "数据库操作失败";
-        std::cout << "[UserManager::HandleRegister]数据库操作失败" << std::endl;
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "UserManager", "处理注册请求时数据库操作失败");
         return response;
     }
     response.code = 0;
     response.msg = "注册成功";
-    std::cout << "[UserManager::HandleRegister]用户注册成功：" << request.username << std::endl;
+    ServerLogger::GetInstance().WriteLog(LogLevel::INFO, "UserManager", "处理注册请求时用户注册成功：" + request.username);
     return response;
 }
 
@@ -83,7 +84,7 @@ Response UserManager::HandleLogin(const Request& request){
     if(!ValidateUsername(request.username)){
         response.code = 2001;
         response.msg = "用户名格式不合法";
-        std::cout << "[UserManager::HandleLogin]用户名格式不合法" << std::endl;
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "UserManager", "处理登录请求时用户名格式不合法");
         return response;
     }
     int userId = 0;
@@ -91,14 +92,14 @@ Response UserManager::HandleLogin(const Request& request){
     if(!userDAO->GetUserByUsername(request.username, userId, passwordHash)){
         response.code = 2003;
         response.msg = "用户不存在";
-        std::cout << "[UserManager::HandleLogin]用户不存在" << std::endl;
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "UserManager", "处理登录请求时用户不存在");
         return response;
     }
     std::string inputHash = MD5Encrypt(request.password);
     if(inputHash != passwordHash){
         response.code = 2004;
         response.msg = "密码错误";
-        std::cout << "[UserManager::HandleLogin]密码错误" << std::endl;
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "UserManager", "处理登录请求时密码错误");
         return response;
     }
 
@@ -106,7 +107,7 @@ Response UserManager::HandleLogin(const Request& request){
     userDAO->GetUserOnlineStatus(userId, isOnline);
     if(isOnline){
         userDAO->UpdateOnlineStatus(userId, false);
-        std::cout << "[UserManager::HandleLogin]用户" << request.username << "已在其他地方登录，已强制下线" << std::endl;
+        ServerLogger::GetInstance().WriteLog(LogLevel::INFO, "UserManager", "用户" + request.username + "已在其他地方登录，已强制下线");
         ClientSession* oldSession = sessionManager->GetSessionByUsername(request.username);
         if(oldSession){
             Json::Value kickJson;
@@ -133,7 +134,7 @@ Response UserManager::HandleLogin(const Request& request){
     }
     response.code = 0;
     response.msg = "登录成功";
-    std::cout << "[UserManager::HandleLogin]用户登录成功：" << request.username << std::endl;
+    ServerLogger::GetInstance().WriteLog(LogLevel::INFO, "UserManager", "处理登录请求时用户登录成功：" + request.username);
     NotifyFriendsStatusChange(request.username, UserStatus::Online);
     return response;
 }
@@ -150,14 +151,14 @@ Response UserManager::HandleUpdateUser(const Request& request){
     if(!userDAO->GetUserByUsername(request.username, userId, passwordHash)){
         response.code = 2003;
         response.msg = "用户不存在";
-        std::cout << "[UserManager::HandleUpdateUser]用户不存在" << std::endl;
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "UserManager", "处理用户信息修改请求时用户不存在");
         return response;
     }
     std::string verifyHash = MD5Encrypt(request.verifyPassword);
     if(verifyHash != passwordHash){
         response.code = 2006;
         response.msg = "验证密码错误";
-        std::cout << "[UserManager::HandleUpdateUser]验证密码错误" << std::endl;
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "UserManager", "处理用户信息修改请求时验证密码错误");
         return response;
     }
     bool updated = false;
@@ -165,19 +166,19 @@ Response UserManager::HandleUpdateUser(const Request& request){
         if(!ValidateUsername(request.newUsername)){
             response.code = 2001;
             response.msg = "新用户名格式不合法";
-            std::cout << "[UserManager::HandleUpdateUser]新用户名格式不合法" << std::endl;
+            ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "UserManager", "处理用户信息修改请求时新用户名格式不合法");
             return response;
         }
         if(userDAO->CheckUsernameExists(request.newUsername)){
             response.code = 2002;
             response.msg = "新用户名已存在";
-            std::cout << "[UserManager::HandleUpdateUser]新用户名已存在" << std::endl;
+            ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "UserManager", "处理用户信息修改请求时新用户名已存在");
             return response;
         }
         if(!userDAO->UpdateUsername(userId, request.newUsername)){
             response.code = 5001;
             response.msg = "数据库操作失败";
-            std::cout << "[UserManager::HandleUpdateUser]数据库操作失败" << std::endl;
+            ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "UserManager", "处理用户信息修改请求时数据库操作失败");
             return response;
         }
         updated = true;
@@ -186,14 +187,14 @@ Response UserManager::HandleUpdateUser(const Request& request){
         if(!ValidatePassword(request.newPassword)){
             response.code = 2001;
             response.msg = "新密码格式不合法";
-            std::cout << "[UserManager::HandleUpdateUser]新密码格式不合法" << std::endl;
+            ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "UserManager", "处理用户信息修改请求时新密码格式不合法");
             return response;
         }
         std::string newPasswordHash = MD5Encrypt(request.newPassword);
         if(!userDAO->UpdatePassword(userId, newPasswordHash)){
             response.code = 5001;
             response.msg = "数据库操作失败";
-            std::cout << "[UserManager::HandleUpdateUser]数据库操作失败" << std::endl;
+            ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "UserManager", "处理用户信息修改请求时数据库操作失败");
             return response;
         }
         updated = true;
@@ -201,12 +202,12 @@ Response UserManager::HandleUpdateUser(const Request& request){
     if(!updated){
         response.code = 1001;
         response.msg = "未修改任何信息";
-        std::cout << "[UserManager::HandleUpdateUser]未修改任何信息" << std::endl;
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "UserManager", "处理用户信息修改请求时未修改任何信息");
         return response;
     }
     response.code = 0;
     response.msg = "修改成功";
-    std::cout << "[UserManager::HandleUpdateUser]用户信息修改成功：" << request.username << std::endl;
+    ServerLogger::GetInstance().WriteLog(LogLevel::INFO, "UserManager", "处理用户信息修改成功：" + request.username);
     return response;
 }
 
@@ -222,14 +223,14 @@ Response UserManager::HandleQueryStatus(const Request& request){
     if(!userDAO->GetUserByUsername(request.username, userId, passwordHash)){
         response.code = 2003;
         response.msg = "用户不存在";
-        std::cout << "[UserManager::HandleQueryStatus]用户不存在" << std::endl;
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "UserManager", "处理用户状态查询请求时用户不存在");
         return response;
     }
     bool isOnline = false;
     if(!userDAO->GetUserOnlineStatus(userId, isOnline)){
         response.code = 5002;
         response.msg = "数据库查询失败";
-        std::cout << "[UserManager::HandleQueryStatus]数据库查询失败" << std::endl;
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "UserManager", "处理用户状态查询请求时数据库查询失败");
         return response;
     }
     response.code = 0;
@@ -238,7 +239,7 @@ Response UserManager::HandleQueryStatus(const Request& request){
     dataObj["status"] = isOnline ? "online" : "offline";
     Json::FastWriter writer;
     response.data = writer.write(dataObj);
-    std::cout << "[UserManager::HandleQueryStatus]用户状态查询成功：" << request.username << std::endl;
+    ServerLogger::GetInstance().WriteLog(LogLevel::INFO, "UserManager", "处理用户状态查询成功：" + request.username);
     return response;
 }
 
@@ -269,12 +270,12 @@ bool UserManager::ValidatePassword(const std::string& password){
 void UserManager::NotifyFriendsStatusChange(const std::string& username, UserStatus status){
     int userId = 0;
     if(!userDAO->GetUserIdByUsername(username, userId)){
-        std::cout << "[UserManager::NotifyFriendsStatusChange]用户不存在" << std::endl;
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "UserManager", "处理好友状态变更通知时用户不存在");
         return;
     }
     std::vector<std::pair<std::string, bool>> friends;
     if(!userDAO->GetFriendsOfUser(userId, friends)){
-        std::cout << "[UserManager::NotifyFriendsStatusChange]数据库查询好友列表失败" << std::endl;
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "UserManager", "处理好友状态变更通知时数据库查询好友列表失败");
         return;
     }
     std::string statusStr = (status == UserStatus::Online) ? "online" : "offline";
@@ -294,7 +295,9 @@ void UserManager::NotifyFriendsStatusChange(const std::string& username, UserSta
             }
         }
     }
-    std::cout << "[UserManager::NotifyFriendsStatusChange]通知好友状态变更：" << username << " 状态：" << statusStr << std::endl;
+    ServerLogger::GetInstance().WriteLog(
+        LogLevel::INFO, "UserManager", "处理好友状态变更通知时成功通知好友状态变更：" + username + " 状态：" + statusStr
+    );
 }
 
 /**
