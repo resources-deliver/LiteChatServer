@@ -31,9 +31,9 @@ UserManager::~UserManager(){
 }
 
 /**
- * @brief 处理用户注册请求
- * @param request 注册请求结构体
- * @return 返回响应结构体
+ * @brief 处理客户端发来的注册请求
+ * @param request 客户端发来的注册请求信息结构体
+ * @return 返回服务器返回给客户端的响应信息结构体
  */
 Response UserManager::HandleRegister(const Request& request){
     Response response;
@@ -75,9 +75,9 @@ Response UserManager::HandleRegister(const Request& request){
 }
 
 /**
- * @brief 处理用户登录请求
- * @param request 登录请求结构体
- * @return 返回响应结构体
+ * @brief 处理客户端发来的登录请求
+ * @param request 客户端发来的登录请求信息结构体
+ * @return 返回服务器返回给客户端的响应信息结构体
  */
 Response UserManager::HandleLogin(const Request& request){
     Response response;
@@ -140,9 +140,9 @@ Response UserManager::HandleLogin(const Request& request){
 }
 
 /**
- * @brief 处理用户信息修改请求
- * @param request 修改请求结构体
- * @return 返回响应结构体
+ * @brief 处理客户端发来的用户信息修改请求
+ * @param request 客户端发来的用户信息修改请求信息结构体
+ * @return 返回服务器返回给客户端的响应信息结构体
  */
 Response UserManager::HandleUpdateUser(const Request& request){
     Response response;
@@ -212,9 +212,9 @@ Response UserManager::HandleUpdateUser(const Request& request){
 }
 
 /**
- * @brief 处理用户状态查询请求
- * @param request 查询请求结构体
- * @return 返回响应结构体
+ * @brief 处理客户端发来的用户状态查询请求
+ * @param request 客户端发来的用户状态查询请求信息结构体
+ * @return 返回服务器返回给客户端的响应信息结构体
  */
 Response UserManager::HandleQueryStatus(const Request& request){
     Response response;
