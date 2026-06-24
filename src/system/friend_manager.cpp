@@ -1,4 +1,5 @@
 #include "friend_manager.h"
+#include "server_logger.h"
 #include <iostream>
 #include <jsoncpp/json/json.h>
 
@@ -32,47 +33,51 @@ FriendManager::~FriendManager(){
  */
 Response FriendManager::HandleAddFriend(const Request& request){
     Response response;
-    if(request.targetUsername.empty()){
+    std::string targetUsername = request.targetUsername;
+    if(targetUsername.empty()){
+        targetUsername = request.username;
+    }
+    if(targetUsername.empty()){
         response.code = 1001;
         response.msg = "目标用户名不能为空";
-        std::cout << "[FriendManager::HandleAddFriend]目标用户名不能为空" << std::endl;
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "FriendManager", "添加好友请求失败：目标用户名不能为空");
         return response;
     }
-    if(request.username == request.targetUsername){
+    if(request.username == targetUsername){
         response.code = 3003;
         response.msg = "不能添加自己为好友";
-        std::cout << "[FriendManager::HandleAddFriend]不能添加自己为好友" << std::endl;
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "FriendManager", "添加好友请求失败：不能添加自己为好友");
         return response;
     }
     int userId = 0;
     if(!userDAO->GetUserIdByUsername(request.username, userId)){
         response.code = 2003;
         response.msg = "用户不存在";
-        std::cout << "[FriendManager::HandleAddFriend]用户不存在" << std::endl;
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "FriendManager", "添加好友请求失败：用户不存在");
         return response;
     }
     int targetUserId = 0;
-    if(!userDAO->GetUserIdByUsername(request.targetUsername, targetUserId)){
+    if(!userDAO->GetUserIdByUsername(targetUsername, targetUserId)){
         response.code = 3001;
         response.msg = "目标用户不存在";
-        std::cout << "[FriendManager::HandleAddFriend]目标用户不存在" << std::endl;
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "FriendManager", "添加好友请求失败：目标用户不存在");
         return response;
     }
     if(friendDAO->CheckFriendship(userId, targetUserId)){
         response.code = 3002;
         response.msg = "已经是好友关系";
-        std::cout << "[FriendManager::HandleAddFriend]已经是好友关系" << std::endl;
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "FriendManager", "添加好友请求失败：已经是好友关系");
         return response;
     }
     if(!friendDAO->InsertFriend(userId, targetUserId)){
         response.code = 5001;
         response.msg = "数据库操作失败";
-        std::cout << "[FriendManager::HandleAddFriend]数据库操作失败" << std::endl;
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "FriendManager", "添加好友请求失败：数据库操作失败");
         return response;
     }
     response.code = 0;
     response.msg = "添加好友成功";
-    std::cout << "[FriendManager::HandleAddFriend]添加好友成功：" << request.username << " -> " << request.targetUsername << std::endl;
+    ServerLogger::GetInstance().WriteLog(LogLevel::INFO, "FriendManager", "添加好友成功：" + request.username + " -> " + targetUsername);
     return response;
 }
 
@@ -83,42 +88,48 @@ Response FriendManager::HandleAddFriend(const Request& request){
  */
 Response FriendManager::HandleDeleteFriend(const Request& request){
     Response response;
-    if(request.targetUsername.empty()){
+    std::string targetUsername = request.targetUsername;
+    if(targetUsername.empty()){
+        targetUsername = request.username;
+    }
+    if(targetUsername.empty()){
         response.code = 1001;
         response.msg = "目标用户名不能为空";
-        std::cout << "[FriendManager::HandleDeleteFriend]目标用户名不能为空" << std::endl;
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "FriendManager", "删除好友请求失败：目标用户名不能为空");
         return response;
     }
     int userId = 0;
     if(!userDAO->GetUserIdByUsername(request.username, userId)){
         response.code = 2003;
         response.msg = "用户不存在";
-        std::cout << "[FriendManager::HandleDeleteFriend]用户不存在" << std::endl;
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "FriendManager", "删除好友请求失败：用户不存在");
         return response;
     }
     int targetUserId = 0;
-    if(!userDAO->GetUserIdByUsername(request.targetUsername, targetUserId)){
+    if(!userDAO->GetUserIdByUsername(targetUsername, targetUserId)){
         response.code = 3001;
         response.msg = "目标用户不存在";
-        std::cout << "[FriendManager::HandleDeleteFriend]目标用户不存在" << std::endl;
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "FriendManager", "删除好友请求失败：目标用户不存在");
         return response;
     }
     if(!friendDAO->CheckFriendship(userId, targetUserId)){
         response.code = 3004;
         response.msg = "不是好友关系";
-        std::cout << "[FriendManager::HandleDeleteFriend]不是好友关系" << std::endl;
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "FriendManager", "删除好友请求失败：不是好友关系");
         return response;
     }
     if(!friendDAO->DeleteFriend(userId, targetUserId)){
         response.code = 5001;
         response.msg = "数据库操作失败";
-        std::cout << "[FriendManager::HandleDeleteFriend]数据库操作失败" << std::endl;
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "FriendManager", "删除好友请求失败：数据库操作失败");
         return response;
     }
     friendDAO->DeleteMessagesBetweenUsers(userId, targetUserId);
     response.code = 0;
     response.msg = "删除好友成功";
-    std::cout << "[FriendManager::HandleDeleteFriend]删除好友成功：" << request.username << " -> " << request.targetUsername << "（含相关消息记录）" << std::endl;
+    ServerLogger::GetInstance().WriteLog(
+        LogLevel::INFO, "FriendManager", "删除好友成功：" + request.username + " -> " + targetUsername
+    );
     return response;
 }
 
@@ -133,14 +144,14 @@ Response FriendManager::HandleFriendList(const Request& request){
     if(!userDAO->GetUserIdByUsername(request.username, userId)){
         response.code = 2003;
         response.msg = "用户不存在";
-        std::cout << "[FriendManager::HandleFriendList]用户不存在" << std::endl;
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "FriendManager", "查询好友列表失败：用户不存在");
         return response;
     }
     std::vector<std::pair<std::string, bool>> friends;
     if(!friendDAO->GetFriendList(userId, friends)){
         response.code = 5002;
         response.msg = "数据库查询失败";
-        std::cout << "[FriendManager::HandleFriendList]数据库查询失败" << std::endl;
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "FriendManager", "查询好友列表失败：数据库查询失败");
         return response;
     }
     Json::Value friendsArray(Json::arrayValue);
@@ -156,7 +167,9 @@ Response FriendManager::HandleFriendList(const Request& request){
     response.data = writer.write(dataObj);
     response.code = 0;
     response.msg = "查询成功";
-    std::cout << "[FriendManager::HandleFriendList]查询好友列表成功,用户名: " << request.username << ", 好友数量: " << friends.size() << std::endl;
+    ServerLogger::GetInstance().WriteLog(
+        LogLevel::INFO, "FriendManager", "查询好友列表成功,用户名: " + request.username + ", 好友数量: " + std::to_string(friends.size())
+    );
     return response;
 }
 
@@ -167,24 +180,28 @@ Response FriendManager::HandleFriendList(const Request& request){
  */
 Response FriendManager::HandleFriendStatus(const Request& request){
     Response response;
-    if(request.targetUsername.empty()){
+    std::string targetUsername = request.targetUsername;
+    if(targetUsername.empty()){
+        targetUsername = request.username;
+    }
+    if(targetUsername.empty()){
         response.code = 1001;
         response.msg = "目标用户名不能为空";
-        std::cout << "[FriendManager::HandleFriendStatus]目标用户名不能为空" << std::endl;
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "FriendManager", "查询好友状态失败：目标用户名不能为空");
         return response;
     }
     int targetUserId = 0;
-    if(!userDAO->GetUserIdByUsername(request.targetUsername, targetUserId)){
+    if(!userDAO->GetUserIdByUsername(targetUsername, targetUserId)){
         response.code = 3001;
         response.msg = "目标用户不存在";
-        std::cout << "[FriendManager::HandleFriendStatus]目标用户不存在" << std::endl;
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "FriendManager", "查询好友状态失败：目标用户不存在");
         return response;
     }
     bool isOnline = false;
     if(!userDAO->GetUserOnlineStatus(targetUserId, isOnline)){
         response.code = 5002;
         response.msg = "数据库查询失败";
-        std::cout << "[FriendManager::HandleFriendStatus]数据库查询失败" << std::endl;
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "FriendManager", "查询好友状态失败：数据库查询失败");
         return response;
     }
     Json::Value dataObj;
@@ -193,7 +210,9 @@ Response FriendManager::HandleFriendStatus(const Request& request){
     response.data = writer.write(dataObj);
     response.code = 0;
     response.msg = isOnline ? "在线" : "离线";
-    std::cout << "[FriendManager::HandleFriendStatus]查询好友状态成功,目标用户名: " << request.targetUsername << std::endl;
+    ServerLogger::GetInstance().WriteLog(
+        LogLevel::INFO, "FriendManager", "查询好友状态成功,目标用户名: " + request.targetUsername
+    );
     return response;
 }
 
@@ -204,34 +223,40 @@ Response FriendManager::HandleFriendStatus(const Request& request){
  */
 Response FriendManager::HandleQueryFriend(const Request& request){
     Response response;
-    if(request.targetUsername.empty()){
+    std::string targetUsername = request.targetUsername;
+    if(targetUsername.empty()){
+        targetUsername = request.username;
+    }
+    if(targetUsername.empty()){
         response.code = 1001;
         response.msg = "目标用户名不能为空";
-        std::cout << "[FriendManager::HandleQueryFriend]目标用户名不能为空" << std::endl;
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "FriendManager", "查询好友信息失败：目标用户名不能为空");
         return response;
     }
     int targetUserId = 0;
-    if(!userDAO->GetUserIdByUsername(request.targetUsername, targetUserId)){
+    if(!userDAO->GetUserIdByUsername(targetUsername, targetUserId)){
         response.code = 3001;
         response.msg = "目标用户不存在";
-        std::cout << "[FriendManager::HandleQueryFriend]目标用户不存在" << std::endl;
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "FriendManager", "查询好友信息失败：目标用户不存在");
         return response;
     }
     bool isOnline = false;
     if(!userDAO->GetUserOnlineStatus(targetUserId, isOnline)){
         response.code = 5002;
         response.msg = "数据库查询失败";
-        std::cout << "[FriendManager::HandleQueryFriend]数据库查询失败" << std::endl;
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "FriendManager", "查询好友信息失败：数据库查询失败");
         return response;
     }
     Json::Value dataObj;
-    dataObj["username"] = request.targetUsername;
+    dataObj["username"] = targetUsername;
     dataObj["status"] = isOnline ? "online" : "offline";
     Json::FastWriter writer;
     response.data = writer.write(dataObj);
     response.code = 0;
     response.msg = "查询成功";
-    std::cout << "[FriendManager::HandleQueryFriend]查询好友信息成功,目标用户名: " << request.targetUsername << std::endl;
+    ServerLogger::GetInstance().WriteLog(
+        LogLevel::INFO, "FriendManager", "查询好友信息成功,目标用户名: " + request.targetUsername
+    );
     return response;
 }
 
@@ -245,9 +270,11 @@ bool FriendManager::CheckFriendship(const std::string& username1, const std::str
     int userId1 = 0;
     int userId2 = 0;
     if(!userDAO->GetUserIdByUsername(username1, userId1)){
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "FriendManager", "检查好友关系失败：用户不存在,用户名: " + username1);
         return false;
     }
     if(!userDAO->GetUserIdByUsername(username2, userId2)){
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "FriendManager", "检查好友关系失败：用户不存在,用户名: " + username2);
         return false;
     }
     return friendDAO->CheckFriendship(userId1, userId2);
@@ -260,12 +287,12 @@ bool FriendManager::CheckFriendship(const std::string& username1, const std::str
 void FriendManager::CacheFriendList(const std::string& username){
     int userId = 0;
     if(!userDAO->GetUserIdByUsername(username, userId)){
-        std::cout << "[FriendManager::CacheFriendList]用户不存在,用户名: " << username << std::endl;
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "FriendManager", "缓存好友列表失败：用户不存在,用户名: " + username);
         return;
     }
     std::vector<std::pair<std::string, bool>> friends;
     if(!friendDAO->GetFriendList(userId, friends)){
-        std::cout << "[FriendManager::CacheFriendList]查询好友列表失败,用户名: " << username << std::endl;
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "FriendManager", "缓存好友列表失败：查询好友列表失败,用户名: " + username);
         return;
     }
     std::lock_guard<std::mutex> lock(cacheMutex);
@@ -274,7 +301,9 @@ void FriendManager::CacheFriendList(const std::string& username){
         friendUsernames.push_back(friendPair.first);
     }
     cachedFriendLists[username] = friendUsernames;
-    std::cout << "[FriendManager::CacheFriendList]缓存好友列表成功,用户名: " << username << ", 好友数量: " << friendUsernames.size() << std::endl;
+    ServerLogger::GetInstance().WriteLog(
+        LogLevel::INFO, "FriendManager", "缓存好友列表成功,用户名: " + username + ", 好友数量: " + std::to_string(friendUsernames.size())
+    );
 }
 
 /**
@@ -286,7 +315,9 @@ void FriendManager::RemoveFriendCache(const std::string& username){
     auto it = cachedFriendLists.find(username);
     if(it != cachedFriendLists.end()){
         cachedFriendLists.erase(it);
-        std::cout << "[FriendManager::RemoveFriendCache]移除好友列表缓存成功,用户名: " << username << std::endl;
+        ServerLogger::GetInstance().WriteLog(
+            LogLevel::INFO, "FriendManager", "移除好友列表缓存成功,用户名: " + username
+        );
     }
 }
 

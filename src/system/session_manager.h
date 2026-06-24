@@ -13,16 +13,17 @@ class SessionManager{
 public:
     SessionManager();
     ~SessionManager();
-    void AddSession(int socket, ClientSession* session);
+    void AddSession(int socket, ClientSession* cliSession);
     void RemoveSession(int socket);
     ClientSession* GetSession(int socket);
     ClientSession* GetSessionByUsername(const std::string& username);
     void BindUsername(int socket, const std::string& username);
     std::unordered_map<int, ClientSession*> GetAllSessions();
+    int GetOnlineUserCount();
     std::mutex& GetMutex();
 
 private:
-    std::unordered_map<int, ClientSession*> sessionMap;  // 会话映射表，键为客户端socket，值为会话指针
+    std::unordered_map<int, ClientSession*> cliSessionMap;  // 会话映射表，键为客户端socket，值为会话指针
     std::unordered_map<std::string, int> usernameToSocket;  // 用户名到客户端socket的映射表
     std::mutex sessionMutex;  // 会话互斥锁
 };

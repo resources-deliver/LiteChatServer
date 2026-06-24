@@ -1,10 +1,11 @@
 #include "user_dao.h"
-#include <iostream>
-#include <sstream>
+#include "server_logger.h"
+#include <cppconn/prepared_statement.h>
+#include <cppconn/resultset.h>
 
 /**
- * @brief UserDAO构造函数，初始化类内私有属性
- * @param dbManager 数据库管理器指针
+ * @brief 构造函数
+ * @param dbManager 数据库管理器对象
  */
 UserDAO::UserDAO(DBManager* dbManager)
     : dbManager(dbManager)
@@ -12,11 +13,9 @@ UserDAO::UserDAO(DBManager* dbManager)
 }
 
 /**
- * @brief UserDAO析构函数
+ * @brief 析构函数
  */
-UserDAO::~UserDAO()
-{
-}
+UserDAO::~UserDAO(){}
 
 /**
  * @brief 插入新用户（注册）到数据库
@@ -25,24 +24,29 @@ UserDAO::~UserDAO()
  * @return 插入成功返回true，失败返回false
  */
 bool UserDAO::InsertUser(const std::string& username, const std::string& passwordHash){
-    // 从MYSQL连接池获取可用连接
-    MYSQL* conn = dbManager->GetConnection();
+    sql::Connection* conn = dbManager->GetConnection();
     if(!conn){
-        std::cerr << "[UserDAO::InsertUser]获取数据库连接失败" << std::endl;
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "UserDAO", "获取数据库连接失败");
         return false;
     }
-    // 用于构建SQL语句的字符串流
-    std::ostringstream sql;
-    sql << "INSERT INTO users (username, password_hash) VALUES ('" << username << "', '" << passwordHash << "')";
-    // 执行更新语句
-    bool result = dbManager->ExecuteUpdate(conn, sql.str());
-    if(!result){
-        std::cerr << "[UserDAO::InsertUser]插入用户失败,用户名: " << username << std::endl;
-        dbManager->ReleaseConnection(conn);
-        return false;
+    bool result = false;
+    try{
+        sql::PreparedStatement* pstmt = conn->prepareStatement(
+            "INSERT INTO users (username, password_hash) VALUES (?, ?)"
+        );  // 创建预处理语句
+        pstmt->setString(1, username);  // 设置第一个参数位为用户名
+        pstmt->setString(2, passwordHash);  // 设置第二个参数位为密码哈希值
+        pstmt->executeUpdate();  // 执行预处理语句（插入）
+        result = true;
+        ServerLogger::GetInstance().WriteLog(LogLevel::INFO, "UserDAO", "插入用户到数据库成功");
+        delete pstmt;
     }
-    std::cout << "[UserDAO::InsertUser]插入用户成功,用户名: " << username << std::endl;
-    // 释放资源
+    catch(sql::SQLException& e){
+        ServerLogger::GetInstance().WriteLog(
+            LogLevel::ERROR, "UserDAO", "插入用户到数据库失败: " + std::string(e.what())
+        );
+        result = false;
+    }
     dbManager->ReleaseConnection(conn);
     return result;
 }
@@ -55,37 +59,38 @@ bool UserDAO::InsertUser(const std::string& username, const std::string& passwor
  * @return 查询成功返回true，用户不存在返回false
  */
 bool UserDAO::GetUserByUsername(const std::string& username, int& userId, std::string& passwordHash){
-    // 从MYSQL连接池获取可用连接
-    MYSQL* conn = dbManager->GetConnection();
+    sql::Connection* conn = dbManager->GetConnection();
     if(!conn){
-        std::cerr << "[UserDAO::GetUserByUsername]获取数据库连接失败" << std::endl;
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "UserDAO", "获取数据库连接失败");
         return false;
     }
-    // 用于构建SQL语句的字符串流
-    std::ostringstream sql;
-    sql << "SELECT user_id, password_hash FROM users WHERE username = '" << username << "'";
-    // 执行查询语句
-    MYSQL_RES* result = dbManager->ExecuteQuery(conn, sql.str());
-    if(!result){
-        std::cerr << "[UserDAO::GetUserByUsername]查询用户失败,用户名: " << username << std::endl;
-        dbManager->ReleaseConnection(conn);
-        return false;
+    bool found = false;
+    try{
+        sql::PreparedStatement* pstmt = conn->prepareStatement(
+            "SELECT user_id, password_hash FROM users WHERE username = ?"
+        );
+        pstmt->setString(1, username);
+        sql::ResultSet* res = pstmt->executeQuery();  // 执行预处理语句（查询）
+        if(res->next()){  // 如果查询结果有下一行
+            userId = res->getInt("user_id");  // 获取用户ID
+            passwordHash = res->getString("password_hash");  // 获取密码哈希值
+            found = true;
+            ServerLogger::GetInstance().WriteLog(LogLevel::INFO, "UserDAO", "从数据库查询用户信息成功");
+        }
+        else{
+            ServerLogger::GetInstance().WriteLog(LogLevel::INFO, "UserDAO", "从数据库查询用户信息失败，用户不存在");
+        }
+        delete res;
+        delete pstmt;
     }
-    // 获取与处理查询结果
-    MYSQL_ROW row = mysql_fetch_row(result);
-    if(!row){
-        std::cerr << "[UserDAO::GetUserByUsername]用户不存在,用户名: " << username << std::endl;
-        mysql_free_result(result);
-        dbManager->ReleaseConnection(conn);
-        return false;
+    catch(sql::SQLException& e){
+        ServerLogger::GetInstance().WriteLog(
+            LogLevel::ERROR, "UserDAO", "查询用户信息失败: " + std::string(e.what())
+        );
+        found = false;
     }
-    userId = std::stoi(row[0]);
-    passwordHash = row[1];
-    std::cout << "[UserDAO::GetUserByUsername]查询用户成功,用户ID: " << userId << std::endl;
-    // 释放资源
-    mysql_free_result(result);
     dbManager->ReleaseConnection(conn);
-    return true;
+    return found;
 }
 
 /**
@@ -95,24 +100,29 @@ bool UserDAO::GetUserByUsername(const std::string& username, int& userId, std::s
  * @return 更新成功返回true，失败返回false
  */
 bool UserDAO::UpdateUsername(int userId, const std::string& newUsername){
-    // 从MYSQL连接池获取可用连接
-    MYSQL* conn = dbManager->GetConnection();
+    sql::Connection* conn = dbManager->GetConnection();
     if(!conn){
-        std::cerr << "[UserDAO::UpdateUsername]获取数据库连接失败" << std::endl;
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "UserDAO", "获取数据库连接失败");
         return false;
     }
-    // 用于构建SQL语句的字符串流
-    std::ostringstream sql;
-    sql << "UPDATE users SET username = '" << newUsername << "' WHERE user_id = " << userId;
-    // 执行更新语句
-    bool result = dbManager->ExecuteUpdate(conn, sql.str());
-    if(!result){
-        std::cerr << "[UserDAO::UpdateUsername]更新用户名失败,用户ID: " << userId << std::endl;
-        dbManager->ReleaseConnection(conn);
-        return false;
+    bool result = false;
+    try{
+        sql::PreparedStatement* pstmt = conn->prepareStatement(
+            "UPDATE users SET username = ? WHERE user_id = ?"
+        );
+        pstmt->setString(1, newUsername);
+        pstmt->setInt(2, userId);
+        pstmt->executeUpdate();
+        result = true;
+        ServerLogger::GetInstance().WriteLog(LogLevel::INFO, "UserDAO", "更新用户名到数据库成功");
+        delete pstmt;
     }
-    std::cout << "[UserDAO::UpdateUsername]更新用户名成功,用户ID: " << userId << ", 新用户名: " << newUsername << std::endl;
-    // 释放资源
+    catch(sql::SQLException& e){
+        ServerLogger::GetInstance().WriteLog(
+            LogLevel::ERROR, "UserDAO", "更新用户名到数据库失败: " + std::string(e.what())
+        );
+        result = false;
+    }
     dbManager->ReleaseConnection(conn);
     return result;
 }
@@ -124,24 +134,29 @@ bool UserDAO::UpdateUsername(int userId, const std::string& newUsername){
  * @return 更新成功返回true，失败返回false
  */
 bool UserDAO::UpdatePassword(int userId, const std::string& newPasswordHash){
-    // 从MYSQL连接池获取可用连接
-    MYSQL* conn = dbManager->GetConnection();
+    sql::Connection* conn = dbManager->GetConnection();
     if(!conn){
-        std::cerr << "[UserDAO::UpdatePassword]获取数据库连接失败" << std::endl;
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "UserDAO", "获取数据库连接失败");
         return false;
     }
-    // 用于构建SQL语句的字符串流
-    std::ostringstream sql;
-    sql << "UPDATE users SET password_hash = '" << newPasswordHash << "' WHERE user_id = " << userId;
-    // 执行更新语句
-    bool result = dbManager->ExecuteUpdate(conn, sql.str());
-    if(!result){
-        std::cerr << "[UserDAO::UpdatePassword]更新密码失败,用户ID: " << userId << std::endl;
-        dbManager->ReleaseConnection(conn);
-        return false;
+    bool result = false;
+    try{
+        sql::PreparedStatement* pstmt = conn->prepareStatement(
+            "UPDATE users SET password_hash = ? WHERE user_id = ?"
+        );
+        pstmt->setString(1, newPasswordHash);
+        pstmt->setInt(2, userId);
+        pstmt->executeUpdate();
+        result = true;
+        ServerLogger::GetInstance().WriteLog(LogLevel::INFO, "UserDAO", "更新用户密码到数据库成功");
+        delete pstmt;
     }
-    std::cout << "[UserDAO::UpdatePassword]更新密码成功,用户ID: " << userId << std::endl;
-    // 释放资源
+    catch(sql::SQLException& e){
+        ServerLogger::GetInstance().WriteLog(
+            LogLevel::ERROR, "UserDAO", "更新用户密码到数据库失败: " + std::string(e.what())
+        );
+        result = false;
+    }
     dbManager->ReleaseConnection(conn);
     return result;
 }
@@ -153,24 +168,29 @@ bool UserDAO::UpdatePassword(int userId, const std::string& newPasswordHash){
  * @return 更新成功返回true，失败返回false
  */
 bool UserDAO::UpdateOnlineStatus(int userId, bool isOnline){
-    // 从MYSQL连接池获取可用连接
-    MYSQL* conn = dbManager->GetConnection();
+    sql::Connection* conn = dbManager->GetConnection();
     if(!conn){
-        std::cerr << "[UserDAO::UpdateOnlineStatus]获取数据库连接失败" << std::endl;
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "UserDAO", "获取数据库连接失败");
         return false;
     }
-    // 用于构建SQL语句的字符串流
-    std::ostringstream sql;
-    sql << "UPDATE users SET is_online = " << (isOnline ? 1 : 0) << " WHERE user_id = " << userId;
-    // 执行更新语句
-    bool result = dbManager->ExecuteUpdate(conn, sql.str());
-    if(!result){
-        std::cerr << "[UserDAO::UpdateOnlineStatus]更新在线状态失败,用户ID: " << userId << std::endl;
-        dbManager->ReleaseConnection(conn);
-        return false;
+    bool result = false;
+    try{
+        sql::PreparedStatement* pstmt = conn->prepareStatement(
+            "UPDATE users SET is_online = ? WHERE user_id = ?"
+        );
+        pstmt->setBoolean(1, isOnline);  // 设置第一个参数位为在线状态
+        pstmt->setInt(2, userId);
+        pstmt->executeUpdate();
+        result = true;
+        ServerLogger::GetInstance().WriteLog(LogLevel::INFO, "UserDAO", "更新用户在线状态到数据库成功");
+        delete pstmt;
     }
-    std::cout << "[UserDAO::UpdateOnlineStatus]更新在线状态成功,用户ID: " << userId << std::endl;
-    // 释放资源
+    catch(sql::SQLException& e){
+        ServerLogger::GetInstance().WriteLog(
+            LogLevel::ERROR, "UserDAO", "更新用户在线状态到数据库失败: " + std::string(e.what())
+        );
+        result = false;
+    }
     dbManager->ReleaseConnection(conn);
     return result;
 }
@@ -181,24 +201,28 @@ bool UserDAO::UpdateOnlineStatus(int userId, bool isOnline){
  * @return 更新成功返回true，失败返回false
  */
 bool UserDAO::UpdateLastLoginTime(int userId){
-    // 从MYSQL连接池获取可用连接
-    MYSQL* conn = dbManager->GetConnection();
+    sql::Connection* conn = dbManager->GetConnection();
     if(!conn){
-        std::cerr << "[UserDAO::UpdateLastLoginTime]获取数据库连接失败" << std::endl;
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "UserDAO", "获取数据库连接失败");
         return false;
     }
-    // 用于构建SQL语句的字符串流
-    std::ostringstream sql;
-    sql << "UPDATE users SET last_login_time = NOW() WHERE user_id = " << userId;
-    // 执行更新语句
-    bool result = dbManager->ExecuteUpdate(conn, sql.str());
-    if(!result){
-        std::cerr << "[UserDAO::UpdateLastLoginTime]更新最后登录时间失败,用户ID: " << userId << std::endl;
-        dbManager->ReleaseConnection(conn);
-        return false;
+    bool result = false;
+    try{
+        sql::PreparedStatement* pstmt = conn->prepareStatement(
+            "UPDATE users SET last_login_time = NOW() WHERE user_id = ?"
+        );
+        pstmt->setInt(1, userId);
+        pstmt->executeUpdate();
+        result = true;
+        ServerLogger::GetInstance().WriteLog(LogLevel::INFO, "UserDAO", "更新用户最后登录时间到数据库成功");
+        delete pstmt;
     }
-    std::cout << "[UserDAO::UpdateLastLoginTime]更新最后登录时间成功,用户ID: " << userId << std::endl;
-    // 释放资源
+    catch(sql::SQLException& e){
+        ServerLogger::GetInstance().WriteLog(
+            LogLevel::ERROR, "UserDAO", "更新用户最后登录时间到数据库失败: " + std::string(e.what())
+        );
+        result = false;
+    }
     dbManager->ReleaseConnection(conn);
     return result;
 }
@@ -209,36 +233,34 @@ bool UserDAO::UpdateLastLoginTime(int userId){
  * @return 已存在返回true，不存在返回false
  */
 bool UserDAO::CheckUsernameExists(const std::string& username){
-    // 从MYSQL连接池获取可用连接
-    MYSQL* conn = dbManager->GetConnection();
+    sql::Connection* conn = dbManager->GetConnection();
     if(!conn){
-        std::cerr << "[UserDAO::CheckUsernameExists]获取数据库连接失败" << std::endl;
-        return false;
-    }
-    // 用于构建SQL语句的字符串流
-    std::ostringstream sql;
-    sql << "SELECT COUNT(*) FROM users WHERE username = '" << username << "'";
-    // 执行查询语句
-    MYSQL_RES* result = dbManager->ExecuteQuery(conn, sql.str());
-    if(!result){
-        std::cerr << "[UserDAO::CheckUsernameExists]查询用户名是否存在失败,用户名: " << username << std::endl;
-        dbManager->ReleaseConnection(conn);
-        return false;
-    }
-    // 获取与处理查询结果
-    MYSQL_ROW row = mysql_fetch_row(result);
-    if(!row){
-        std::cerr << "[UserDAO::CheckUsernameExists]查询用户名是否存在失败,用户名: " << username << std::endl;
-        mysql_free_result(result);
-        dbManager->ReleaseConnection(conn);
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "UserDAO", "获取数据库连接失败");
         return false;
     }
     bool exists = false;
-    if(row && std::stoi(row[0]) > 0){
-        exists = true;
+    try{
+        sql::PreparedStatement* pstmt = conn->prepareStatement(
+            "SELECT COUNT(*) FROM users WHERE username = ?"
+        );
+        pstmt->setString(1, username);
+        sql::ResultSet* res = pstmt->executeQuery();
+        if(res->next() && res->getInt(1) > 0){  // 检查查询结果是否为空且计数大于0
+            exists = true;
+            ServerLogger::GetInstance().WriteLog(LogLevel::INFO, "UserDAO", "用户名已存在");
+        }
+        else{
+            ServerLogger::GetInstance().WriteLog(LogLevel::INFO, "UserDAO", "用户名不存在");
+        }
+        delete res;
+        delete pstmt;
     }
-    // 释放资源
-    mysql_free_result(result);
+    catch(sql::SQLException& e){
+        ServerLogger::GetInstance().WriteLog(
+            LogLevel::ERROR, "UserDAO", "检查用户名是否存在失败: " + std::string(e.what())
+        );
+        exists = false;
+    }
     dbManager->ReleaseConnection(conn);
     return exists;
 }
@@ -250,35 +272,37 @@ bool UserDAO::CheckUsernameExists(const std::string& username){
  * @return 查询成功返回true，失败返回false
  */
 bool UserDAO::GetUserOnlineStatus(int userId, bool& isOnline){
-    // 从MYSQL连接池获取可用连接
-    MYSQL* conn = dbManager->GetConnection();
+    sql::Connection* conn = dbManager->GetConnection();
     if(!conn){
-        std::cerr << "[UserDAO::GetUserOnlineStatus]获取数据库连接失败" << std::endl;
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "UserDAO", "获取数据库连接失败");
         return false;
     }
-    // 用于构建SQL语句的字符串流
-    std::ostringstream sql;
-    sql << "SELECT is_online FROM users WHERE user_id = " << userId;
-    // 执行查询语句
-    MYSQL_RES* result = dbManager->ExecuteQuery(conn, sql.str());
-    if(!result){
-        std::cerr << "[UserDAO::GetUserOnlineStatus]查询用户在线状态失败,用户ID: " << userId << std::endl;
-        dbManager->ReleaseConnection(conn);
-        return false;
+    bool found = false;
+    try{
+        sql::PreparedStatement* pstmt = conn->prepareStatement(
+            "SELECT is_online FROM users WHERE user_id = ?"
+        );
+        pstmt->setInt(1, userId);
+        sql::ResultSet* res = pstmt->executeQuery();
+        if(res->next()){
+            isOnline = res->getBoolean("is_online");  // 获取在线状态
+            found = true;
+            ServerLogger::GetInstance().WriteLog(LogLevel::INFO, "UserDAO", "查询用户在线状态成功");
+        }
+        else{
+            ServerLogger::GetInstance().WriteLog(LogLevel::INFO, "UserDAO", "用户不存在");
+        }
+        delete res;
+        delete pstmt;
     }
-    // 获取与处理查询结果
-    MYSQL_ROW row = mysql_fetch_row(result);
-    if(!row){
-        std::cerr << "[UserDAO::GetUserOnlineStatus]查询用户在线状态失败,用户ID: " << userId << std::endl;
-        mysql_free_result(result);
-        dbManager->ReleaseConnection(conn);
-        return false;
+    catch(sql::SQLException& e){
+        ServerLogger::GetInstance().WriteLog(
+            LogLevel::ERROR, "UserDAO", "查询用户在线状态失败: " + std::string(e.what())
+        );
+        found = false;
     }
-    isOnline = (std::stoi(row[0]) == 1);
-    // 释放资源
-    mysql_free_result(result);
     dbManager->ReleaseConnection(conn);
-    return true;
+    return found;
 }
 
 /**
@@ -288,25 +312,29 @@ bool UserDAO::GetUserOnlineStatus(int userId, bool& isOnline){
  * @return 更新成功返回true，失败返回false
  */
 bool UserDAO::UpdateOnlineStatusByUsername(const std::string& username, bool isOnline){
-    // 从MYSQL连接池获取可用连接
-    MYSQL* conn = dbManager->GetConnection();
+    sql::Connection* conn = dbManager->GetConnection();
     if(!conn){
-        std::cerr << "[UserDAO::UpdateOnlineStatusByUsername]获取数据库连接失败" << std::endl;
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "UserDAO", "获取数据库连接失败");
         return false;
     }
-    // 用于构建SQL语句的字符串流
-    std::ostringstream sql;
-    sql << "UPDATE users SET is_online = " << (isOnline ? 1 : 0)
-        << " WHERE username = '" << username << "'";
-    // 执行更新语句
-    bool result = dbManager->ExecuteUpdate(conn, sql.str());
-    if(!result){
-        std::cerr << "[UserDAO::UpdateOnlineStatusByUsername]更新用户在线状态失败,用户名: " << username << std::endl;
-        dbManager->ReleaseConnection(conn);
-        return false;
+    bool result = false;
+    try{
+        sql::PreparedStatement* pstmt = conn->prepareStatement(
+            "UPDATE users SET is_online = ? WHERE username = ?"
+        );
+        pstmt->setBoolean(1, isOnline);
+        pstmt->setString(2, username);
+        pstmt->executeUpdate();
+        result = true;
+        ServerLogger::GetInstance().WriteLog(LogLevel::INFO, "UserDAO", "更新在线状态成功");
+        delete pstmt;
     }
-    std::cout << "[UserDAO::UpdateOnlineStatusByUsername]更新用户在线状态成功,用户名: " << username << std::endl;
-    // 释放资源
+    catch(sql::SQLException& e){
+        ServerLogger::GetInstance().WriteLog(
+            LogLevel::ERROR, "UserDAO", "更新在线状态失败: " + std::string(e.what())
+        );
+        result = false;
+    }
     dbManager->ReleaseConnection(conn);
     return result;
 }
@@ -318,35 +346,37 @@ bool UserDAO::UpdateOnlineStatusByUsername(const std::string& username, bool isO
  * @return 查询成功返回true，用户不存在返回false
  */
 bool UserDAO::GetUserIdByUsername(const std::string& username, int& userId){
-    // 从MYSQL连接池获取可用连接
-    MYSQL* conn = dbManager->GetConnection();
+    sql::Connection* conn = dbManager->GetConnection();
     if(!conn){
-        std::cerr << "[UserDAO::GetUserIdByUsername]获取数据库连接失败" << std::endl;
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "UserDAO", "获取数据库连接失败");
         return false;
     }
-    // 用于构建SQL语句的字符串流
-    std::ostringstream sql;
-    sql << "SELECT user_id FROM users WHERE username = '" << username << "'";
-    // 执行查询语句
-    MYSQL_RES* result = dbManager->ExecuteQuery(conn, sql.str());
-    if(!result){
-        std::cerr << "[UserDAO::GetUserIdByUsername]查询用户ID失败,用户名: " << username << std::endl;
-        dbManager->ReleaseConnection(conn);
-        return false;
+    bool found = false;
+    try{
+        sql::PreparedStatement* pstmt = conn->prepareStatement(
+            "SELECT user_id FROM users WHERE username = ?"
+        );
+        pstmt->setString(1, username);
+        sql::ResultSet* res = pstmt->executeQuery();
+        if(res->next()){
+            userId = res->getInt("user_id");
+            found = true;
+            ServerLogger::GetInstance().WriteLog(LogLevel::INFO, "UserDAO", "查询用户ID成功");
+        }
+        else{
+            ServerLogger::GetInstance().WriteLog(LogLevel::INFO, "UserDAO", "用户不存在");
+        }
+        delete res;
+        delete pstmt;
     }
-    // 获取与处理查询结果
-    MYSQL_ROW row = mysql_fetch_row(result);
-    if(!row){
-        mysql_free_result(result);
-        dbManager->ReleaseConnection(conn);
-        return false;
+    catch(sql::SQLException& e){
+        ServerLogger::GetInstance().WriteLog(
+            LogLevel::ERROR, "UserDAO", "查询用户ID失败: " + std::string(e.what())
+        );
+        found = false;
     }
-    userId = std::stoi(row[0]);
-    std::cout << "[UserDAO::GetUserIdByUsername]查询用户ID成功,用户名: " << username << ",用户ID: " << userId << std::endl;
-    // 释放资源
-    mysql_free_result(result);
     dbManager->ReleaseConnection(conn);
-    return true;
+    return found;
 }
 
 /**
@@ -356,35 +386,37 @@ bool UserDAO::GetUserIdByUsername(const std::string& username, int& userId){
  * @return 查询成功返回true，失败返回false
  */
 bool UserDAO::GetFriendsOfUser(int userId, std::vector<std::pair<std::string, bool>>& friends){
-    // 从MYSQL连接池获取可用连接
-    MYSQL* conn = dbManager->GetConnection();
+    sql::Connection* conn = dbManager->GetConnection();
     if(!conn){
-        std::cerr << "[UserDAO::GetFriendsOfUser]获取数据库连接失败" << std::endl;
+        ServerLogger::GetInstance().WriteLog(LogLevel::ERROR, "UserDAO", "获取数据库连接失败");
         return false;
     }
-    // 用于构建SQL语句的字符串流
-    std::ostringstream sql;
-    sql << "SELECT u.username, u.is_online FROM users u "
-        << "INNER JOIN friends f ON (f.user_id1 = u.user_id OR f.user_id2 = u.user_id) "
-        << "WHERE (f.user_id1 = " << userId << " OR f.user_id2 = " << userId << ") "
-        << "AND u.user_id != " << userId;
-    // 执行查询语句
-    MYSQL_RES* result = dbManager->ExecuteQuery(conn, sql.str());
-    if(!result){
-        dbManager->ReleaseConnection(conn);
-        std::cerr << "[UserDAO::GetFriendsOfUser]查询用户好友失败,用户ID: " << userId << std::endl;
-        return false;
+    bool result = true;
+    try{
+        sql::PreparedStatement* pstmt = conn->prepareStatement(
+            "SELECT u.username, u.is_online FROM users u "
+            "INNER JOIN friends f ON (f.user_id1 = u.user_id OR f.user_id2 = u.user_id) "
+            "WHERE (f.user_id1 = ? OR f.user_id2 = ?) AND u.user_id != ?"
+        );
+        pstmt->setInt(1, userId);
+        pstmt->setInt(2, userId);
+        pstmt->setInt(3, userId);
+        sql::ResultSet* res = pstmt->executeQuery();
+        while(res->next()){
+            std::string username = res->getString("username");
+            bool isOnline = res->getBoolean("is_online");
+            friends.push_back({username, isOnline});  // 添加好友到列表
+        }
+        ServerLogger::GetInstance().WriteLog(LogLevel::INFO, "UserDAO", "查询好友列表成功");
+        delete res;
+        delete pstmt;
     }
-    // 获取与处理查询结果
-    MYSQL_ROW row;
-    while((row = mysql_fetch_row(result))){
-        std::string friendUsername = row[0] ? row[0] : "";
-        bool isOnline = (row[1] && std::stoi(row[1]) == 1);
-        friends.push_back({friendUsername, isOnline});
+    catch(sql::SQLException& e){
+        ServerLogger::GetInstance().WriteLog(
+            LogLevel::ERROR, "UserDAO", "查询好友列表失败: " + std::string(e.what())
+        );
+        result = false;
     }
-    std::cout << "[UserDAO::GetFriendsOfUser]查询用户好友成功,用户ID: " << userId << ",好友数量: " << friends.size() << std::endl;
-    // 释放资源
-    mysql_free_result(result);
     dbManager->ReleaseConnection(conn);
-    return true;
+    return result;
 }

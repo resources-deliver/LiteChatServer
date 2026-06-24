@@ -8,7 +8,7 @@
 #include "user_dao.h"
 
 /**
- * @brief 用户响应结构体，用于存储用户响应信息
+ * @brief 响应信息结构体，用于存储服务器返回给客户端的响应信息
  */
 struct Response{
     int code;  // 响应状态码
@@ -17,7 +17,7 @@ struct Response{
 };
 
 /**
- * @brief 用户请求结构体，用于存储用户请求信息
+ * @brief 请求信息结构体，用于存储客户端发来的请求信息
  */
 struct Request{
     std::string type;  // 请求类型
@@ -27,6 +27,8 @@ struct Request{
     std::string newPassword;  // 新密码
     std::string verifyPassword;  // 验证密码
     std::string targetUsername;  // 目标用户名
+    std::string content;  // 消息内容
+    int count;  // 查询条数
     int clientSocket;  // 客户端套接字描述符
 };
 

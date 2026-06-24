@@ -32,9 +32,7 @@ ClientSession::ClientSession(int socket, const std::string& ip, int port)
 /**
  * @brief ClientSession析构函数
  */
-ClientSession::~ClientSession()
-{
-}
+ClientSession::~ClientSession(){}
 
 /**
  * @brief 获取客户端套接字描述符
@@ -100,7 +98,7 @@ void ClientSession::UpdateHeartbeat(){
 }
 
 /**
- * @brief 设置连接状态
+ * @brief 设置客户端连接状态
  * @param connected 连接状态
  */
 void ClientSession::SetIsConnected(bool connected){

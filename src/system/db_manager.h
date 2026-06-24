@@ -1,7 +1,9 @@
 #ifndef DB_MANAGER_H
 #define DB_MANAGER_H
 
-#include <mysql/mysql.h>
+#include <mysql_driver.h>
+#include <mysql_connection.h>
+#include <cppconn/connection.h>
 #include <string>
 #include <queue>
 #include <mutex>
@@ -15,19 +17,18 @@ public:
     DBManager();
     ~DBManager();
     bool InitConnectionPool(int size = 10);
-    MYSQL* GetConnection();
-    void ReleaseConnection(MYSQL* conn);
+    sql::Connection* GetConnection();
+    void ReleaseConnection(sql::Connection* conn);
     bool ValidateConnection();
     bool Reconnect();
-    MYSQL_RES* ExecuteQuery(MYSQL* conn, const std::string& sql);
-    bool ExecuteUpdate(MYSQL* conn, const std::string& sql);
 
 private:
-    MYSQL* CreateConnection();
-    void DestroyConnection(MYSQL* conn);
+    sql::Connection* CreateConnection();
+    void DestroyConnection(sql::Connection* conn);
 
 private:
-    std::queue<MYSQL*> connectionPool;  // MYSQL连接池队列
+    sql::mysql::MySQL_Driver* driver;  // MySQL驱动指针
+    std::queue<sql::Connection*> connectionPool;  // 连接池队列
     int poolSize;  // 连接池大小
     std::mutex poolMutex;  // 连接池互斥锁
     std::condition_variable poolCondition;  // 连接池条件变量
